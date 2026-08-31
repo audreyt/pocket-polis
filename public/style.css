@@ -1,0 +1,365 @@
+:root {
+  --bg: #faf9f6;
+  --surface: #ffffff;
+  --text: #1f2328;
+  --muted: #6b7280;
+  --border: #e3e0d8;
+  --accent: #3b6ea5;
+  --accent-contrast: #ffffff;
+  --agree: #2e7d5b;
+  --disagree: #b3503e;
+  --pass: #8a8578;
+  --group-0: #3b6ea5;
+  --group-1: #c26b34;
+  --group-2: #5c8a4e;
+  --group-3: #8a5ca5;
+  --group-4: #a5527a;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181d;
+    --surface: #1f232b;
+    --text: #e8e6e1;
+    --muted: #9aa0ab;
+    --border: #333842;
+    --accent: #7aa7d6;
+    --accent-contrast: #14161a;
+    --agree: #5cb890;
+    --disagree: #d98977;
+    --pass: #9a958a;
+    --group-0: #7aa7d6;
+    --group-1: #d99a6b;
+    --group-2: #93bd85;
+    --group-3: #b795d1;
+    --group-4: #cf8aaa;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "PingFang TC", "Noto Sans TC", -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.65;
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+}
+
+h1 {
+  font-size: 1.6rem;
+  line-height: 1.3;
+  margin: 0 0 0.5rem;
+}
+
+h2 {
+  font-size: 1.15rem;
+  margin: 2.2rem 0 0.8rem;
+}
+
+p {
+  margin: 0.4rem 0;
+}
+
+a {
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin: 1rem 0;
+}
+
+.statement-card {
+  min-height: 7.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 1.2rem;
+  padding: 2rem 1.5rem;
+}
+
+.vote-buttons {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0.8rem 0 0.4rem;
+}
+
+.vote-buttons button {
+  flex: 1;
+  padding: 0.85rem 0.5rem;
+  font-size: 1rem;
+}
+
+button,
+.button {
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.55rem 1rem;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+}
+
+button:hover,
+.button:hover {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary,
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+button.agree {
+  border-color: var(--agree);
+  color: var(--agree);
+}
+
+button.disagree {
+  border-color: var(--disagree);
+  color: var(--disagree);
+}
+
+button.pass {
+  color: var(--pass);
+}
+
+input[type="text"],
+textarea {
+  font: inherit;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+
+textarea {
+  resize: vertical;
+}
+
+label {
+  display: block;
+  margin: 0.9rem 0 0.25rem;
+  font-weight: 600;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  font-weight: 400;
+}
+
+.checkbox-row input {
+  flex-shrink: 0;
+}
+
+.progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+  margin: 0.6rem 0 0.2rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  width: 0;
+  transition: width 0.3s;
+}
+
+.stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.stat {
+  flex: 1 1 7rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+}
+
+.stat .value {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.stat .label {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.map-svg {
+  width: 100%;
+  height: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  margin: 0.5rem 0;
+  font-size: 0.88rem;
+}
+
+.legend .dot {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  margin-right: 0.35em;
+}
+
+.statement-row {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.statement-row:first-child {
+  border-top: none;
+}
+
+.statement-row .text {
+  flex: 1;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  border-radius: 999px;
+  padding: 0.05rem 0.55rem;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tag.agree {
+  color: var(--agree);
+  border-color: var(--agree);
+}
+
+.tag.disagree {
+  color: var(--disagree);
+  border-color: var(--disagree);
+}
+
+.tag.pending {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.vote-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--border);
+  margin-top: 0.35rem;
+  max-width: 300px;
+}
+
+.vote-bar .agree {
+  background: var(--agree);
+}
+
+.vote-bar .disagree {
+  background: var(--disagree);
+}
+
+.vote-bar .pass {
+  background: var(--pass);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.link-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.45rem 0;
+  flex-wrap: wrap;
+}
+
+.link-row code {
+  flex: 1 1 14rem;
+  overflow-wrap: anywhere;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.84rem;
+}
+
+.notice {
+  border-left: 3px solid var(--accent);
+  padding: 0.5rem 0.9rem;
+  background: var(--surface);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin: 1rem 0;
+}
+
+.error {
+  color: var(--disagree);
+}
+
+footer {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 2.5rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+  border-top: 1px solid var(--border);
+}
+
+.hidden {
+  display: none !important;
+}

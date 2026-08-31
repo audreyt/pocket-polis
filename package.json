@@ -1,0 +1,29 @@
+{
+  "name": "@mashbean/polis-serverless",
+  "version": "0.1.0",
+  "description": "A complete Polis-style wikisurvey round (statements, voting, opinion clustering, consensus) on a single Cloudflare Worker with Durable Object SQLite — no server to host",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mashbean/polis-serverless.git"
+  },
+  "bugs": "https://github.com/mashbean/polis-serverless/issues",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run deploy:dry"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.123.0"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
