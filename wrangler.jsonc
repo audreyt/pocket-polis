@@ -29,7 +29,26 @@
     "logs": {
       "head_sampling_rate": 0.1
     }
+  },
+  // 正式網域只放在 env.production（比照 delib）：Deploy Button 的複製者
+  // 跑預設環境，不會搶走 polis.mashbean.net。
+  "env": {
+    "production": {
+      "name": "polis-serverless",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "CONVERSATION",
+            "class_name": "Conversation"
+          }
+        ]
+      },
+      "routes": [
+        {
+          "pattern": "polis.mashbean.net",
+          "custom_domain": true
+        }
+      ]
+    }
   }
-  // 正式網域（例如 polis.mashbean.net）決定後，比照 delib 的做法放進 env.production 的
-  // routes: [{ "pattern": "...", "custom_domain": true }]，避免 Deploy Button 複製者搶走網域。
 }

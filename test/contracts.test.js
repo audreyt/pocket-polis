@@ -44,6 +44,10 @@ describe("package.json", () => {
     expect(pkg.dependencies).toBeUndefined();
   });
 
+  it("CLI bin 指向 install-skill 腳本", () => {
+    expect(pkg.bin["polis-serverless"]).toBe("./scripts/cli.mjs");
+  });
+
   it("check 腳本涵蓋 typecheck、測試與 dry-run 部署", () => {
     expect(pkg.scripts.deploy).toBe("wrangler deploy");
     expect(pkg.scripts.check).toContain("typecheck");
@@ -61,5 +65,20 @@ describe("README", () => {
 
   it("聲明非官方 pol.is", () => {
     expect(readme).toMatch(/不是官方|非官方|not affiliated/i);
+  });
+
+  it("指向線上展示站與 AGENT.md", () => {
+    expect(readme).toContain("https://polis.mashbean.net");
+    expect(readme).toContain("AGENT.md");
+  });
+});
+
+describe("agent 引導檔案", () => {
+  it("AGENT.md 與 skill 存在且包含部署流程", () => {
+    const agent = read("AGENT.md");
+    expect(agent).toContain("wrangler login");
+    expect(agent).toContain("/api/conversations");
+    const skill = read("skills/polis-serverless/SKILL.md");
+    expect(skill).toMatch(/^---\nname: polis-serverless/);
   });
 });

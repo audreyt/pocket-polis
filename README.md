@@ -4,6 +4,8 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/polis-serverless)
 
+線上展示：**<https://polis.mashbean.net>** · Demo 案例：[【模擬】國防軍購特別預算公投](https://polis.mashbean.net/r/3ovoxq5c6o)（113 位虛構立委的模擬樣本，見 [docs/demo-legislature-sim.md](docs/demo-legislature-sim.md)）
+
 [Polis](https://pol.is)（[compdemocracy/polis](https://github.com/compdemocracy/polis)）是大規模意見調查工具：參與者對彼此提出的陳述投「同意／不同意／略過」，系統即時把投票矩陣降維、分群，找出意見群、各群代表性陳述與跨群共識。官方實作需要 Node API、Clojure math worker 與 PostgreSQL——這個 repo 的研究問題是：**能不能把「完整的一輪」壓進 serverless 原語裡？**（研究脈絡見 [docs/research.md](docs/research.md)）
 
 答案是可以。本 repo 是一個可部署的完整實作：
@@ -39,7 +41,19 @@ npm run check      # tsc + vitest + wrangler deploy --dry-run
 npm run deploy     # 部署到你的 Cloudflare 帳號（workers.dev 網址）
 ```
 
-或直接按上面的 **Deploy to Cloudflare** 按鈕，讓 Cloudflare fork 這個 repo 並自動部署。
+或直接按上面的 **Deploy to Cloudflare** 按鈕，讓 Cloudflare fork 這個 repo 並自動部署。要綁自訂網域：改 `wrangler.jsonc` 的 `env.production.routes` 後 `npm run deploy:production`。
+
+### 讓 AI agent 幫你部署
+
+把這段貼給 Claude Code / Cursor 等 coding agent（你只需要自己完成 `wrangler login` 的瀏覽器登入）：
+
+> 請照 https://github.com/mashbean/polis-serverless/blob/main/AGENT.md 的說明，把 polis-serverless 部署到我的 Cloudflare 帳號（wrangler login 那一步我自己完成），部署完成後用 API 幫我建立第一場討論。
+
+完整的 agent 操作手冊在 [AGENT.md](AGENT.md)；Claude Code 使用者可安裝 skill：
+
+```bash
+npx --yes github:mashbean/polis-serverless install-skill
+```
 
 ## 一輪的走法
 
@@ -65,6 +79,8 @@ npm run deploy     # 部署到你的 Cloudflare 帳號（workers.dev 網址）
 ## 演算法
 
 依 Polis 公開文獻（[The Computational Democracy Project — algorithms](https://compdemocracy.org/algorithms/)、Small et al. 2021《Polis: Scaling Deliberation by Mapping High Dimensional Opinion Spaces》）**重新實作**，未使用官方 AGPL 程式碼。細節與已知偏差列在 [docs/algorithm.md](docs/algorithm.md)。測試（`npm test`）包含合成資料的黃金案例：兩派對立票型必須分出兩群、共識句必須浮上共識清單。
+
+已用官方 Polis 開放資料（CC BY 4.0）實測（[docs/validation-opendata.md](docs/validation-opendata.md)）：vTaiwan UberX、Brexit、Bowling Green 三個資料集**群數全對、與官方分群的 Adjusted Rand Index 0.78–0.86、purity 0.94–0.96**；最大資料集（22.5 萬票、607 句、2,010 人）236ms 算完。
 
 ## 限制（誠實條款）
 

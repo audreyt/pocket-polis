@@ -9,9 +9,14 @@
     "url": "git+https://github.com/mashbean/polis-serverless.git"
   },
   "bugs": "https://github.com/mashbean/polis-serverless/issues",
+  "homepage": "https://polis.mashbean.net/",
+  "bin": {
+    "polis-serverless": "./scripts/cli.mjs"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --env production",
     "deploy:dry": "wrangler deploy --dry-run",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types",
@@ -19,6 +24,7 @@
     "check": "npm run typecheck && npm test && npm run deploy:dry"
   },
   "devDependencies": {
+    "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10",
     "wrangler": "^4.123.0"

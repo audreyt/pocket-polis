@@ -48,7 +48,8 @@
 
 | 項目 | 官方 | 本實作 | 理由 |
 |---|---|---|---|
-| base clustering 的 silhouette | 對 base centers 的加權細節未見於公開文獻 | 未加權 silhouette | 文獻不足；量級影響小 |
+| base clustering 的 silhouette | 對 base centers 的加權細節未見於公開文獻 | 未加權 silhouette | 實測（[validation-opendata.md](validation-opendata.md)）：未加權在 3/4 開放資料集選中官方的 k；加權版反而誤選 |
+| k 的選擇 | 線上 k-smoothing（k 只在 silhouette 明顯改善時改變，路徑依賴） | 每次批次重選 | 稀疏資料上可能選出比官方細的分群（見 football-concussions 案例，purity 0.835 顯示是再細分而非亂分） |
 | comment routing | 帶 extremity 等因子的 priority 公式 | `1/(1+票數)` 加權隨機 | 簡化；效果同向（新句優先） |
 | PCA 增量更新 | EMPCA 增量演算法（票進來就更新） | 每次全量重算＋快取（變動後最快 2 秒一次） | 規模目標內全量重算 <1s，簡單勝出 |
 | moderation 分級 | strict/moderate 多段 | approve/reject 兩段 | 夠用 |

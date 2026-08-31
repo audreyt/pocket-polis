@@ -66,6 +66,53 @@ h2 {
   margin: 2.2rem 0 0.8rem;
 }
 
+h3 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+
+.tagline {
+  font-size: 1.02rem;
+  margin: 0.6rem 0 1rem;
+}
+
+.hero-actions {
+  margin: 1.2rem 0 0.6rem;
+}
+
+.steps {
+  padding-left: 1.3rem;
+  margin: 0.6rem 0;
+}
+
+.steps li {
+  margin: 0.5rem 0;
+}
+
+pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8rem 0.9rem;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.86em;
+}
+
+.link-row code {
+  background: var(--bg);
+}
+
 p {
   margin: 0.4rem 0;
 }

@@ -45,8 +45,8 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-createdPanel.addEventListener("click", (event) => {
+document.addEventListener("click", (event) => {
   const target = event.target.closest("button[data-copy]");
   if (!target) return;
-  copyText(document.getElementById(target.dataset.copy).textContent, target);
+  copyText(document.getElementById(target.dataset.copy).textContent.trim(), target);
 });

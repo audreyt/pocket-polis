@@ -118,34 +118,50 @@ function weightedPick(weights: number[], rng: () => number): number {
   return weights.length - 1;
 }
 
-/** 平均 silhouette 係數（單點群的 a 取 0，與常見實作一致）。 */
-export function silhouette(points: Point[], assignments: number[], k: number): number {
+/**
+ * 加權平均 silhouette 係數。權重視為「重複次數」（base cluster 的大小）：
+ * a(i) 把同群其他 w−1 份自身複本視為距離 0，b(i) 取其他群的加權平均距離。
+ * 不加權時傳全 1 即為標準 silhouette。
+ */
+export function silhouette(
+  points: Point[],
+  assignments: number[],
+  k: number,
+  weights?: number[],
+): number {
   const n = points.length;
   if (n < 2 || k < 2) return 0;
+  const w = weights ?? new Array<number>(n).fill(1);
   const clusterIdx: number[][] = Array.from({ length: k }, () => []);
-  for (let i = 0; i < n; i++) clusterIdx[assignments[i]!]!.push(i);
+  const clusterWeight = new Array<number>(k).fill(0);
+  for (let i = 0; i < n; i++) {
+    clusterIdx[assignments[i]!]!.push(i);
+    clusterWeight[assignments[i]!]! += w[i]!;
+  }
 
   let sum = 0;
+  let totalWeight = 0;
   for (let i = 0; i < n; i++) {
-    const own = clusterIdx[assignments[i]!]!;
+    const ownWeight = clusterWeight[assignments[i]!]!;
+    if (ownWeight <= 1) continue;
     let a = 0;
-    if (own.length > 1) {
-      let d = 0;
-      for (const j of own) if (j !== i) d += Math.sqrt(dist2(points[i]!, points[j]!));
-      a = d / (own.length - 1);
+    for (const j of clusterIdx[assignments[i]!]!) {
+      if (j !== i) a += w[j]! * Math.sqrt(dist2(points[i]!, points[j]!));
     }
+    a /= ownWeight - 1;
     let b = Infinity;
     for (let c = 0; c < k; c++) {
-      if (c === assignments[i] || clusterIdx[c]!.length === 0) continue;
+      if (c === assignments[i] || clusterWeight[c]! === 0) continue;
       let d = 0;
-      for (const j of clusterIdx[c]!) d += Math.sqrt(dist2(points[i]!, points[j]!));
-      b = Math.min(b, d / clusterIdx[c]!.length);
+      for (const j of clusterIdx[c]!) d += w[j]! * Math.sqrt(dist2(points[i]!, points[j]!));
+      b = Math.min(b, d / clusterWeight[c]!);
     }
     if (!isFinite(b)) continue;
     const denom = Math.max(a, b);
-    sum += denom > 0 ? (b - a) / denom : 0;
+    sum += w[i]! * (denom > 0 ? (b - a) / denom : 0);
+    totalWeight += w[i]!;
   }
-  return sum / n;
+  return totalWeight > 0 ? sum / totalWeight : 0;
 }
 
 export interface GroupingResult {
