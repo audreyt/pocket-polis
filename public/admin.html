@@ -9,55 +9,58 @@
 </head>
 <body>
 <main>
-  <h1 id="conv-title">管理頁</h1>
+  <div class="page-top">
+    <h1 id="conv-title" data-i18n="a.title">管理頁</h1>
+    <span class="lang-switch" id="lang-switch"></span>
+  </div>
   <p id="load-error" class="error hidden"></p>
 
   <section id="token-section" class="card hidden">
-    <p>需要管理金鑰。請貼上建立討論時取得的管理連結或 32 碼金鑰：</p>
-    <input type="text" id="token-input" placeholder="管理連結或金鑰">
-    <div class="actions"><button type="button" class="primary" id="token-save">進入管理</button></div>
+    <p data-i18n="a.needToken">需要管理金鑰。請貼上建立討論時取得的管理連結或 32 碼金鑰：</p>
+    <input type="text" id="token-input" data-i18n-placeholder="a.tokenPlaceholder" placeholder="管理連結或金鑰">
+    <div class="actions"><button type="button" class="primary" id="token-save" data-i18n="a.enter">進入管理</button></div>
   </section>
 
   <div id="panel" class="hidden">
-    <h2>分享連結</h2>
+    <h2 data-i18n="a.shareTitle">分享連結</h2>
     <div class="card">
-      <p><strong>參與連結</strong></p>
-      <div class="link-row"><code id="participate-url"></code><button type="button" data-copy="participate-url">複製</button></div>
-      <p><strong>結果頁</strong></p>
-      <div class="link-row"><code id="report-url"></code><button type="button" data-copy="report-url">複製</button></div>
+      <p><strong data-i18n="a.participateLink">參與連結</strong></p>
+      <div class="link-row"><code id="participate-url"></code><button type="button" data-copy="participate-url" data-i18n="a.copy">複製</button></div>
+      <p><strong data-i18n="a.reportLink">結果頁</strong></p>
+      <div class="link-row"><code id="report-url"></code><button type="button" data-copy="report-url" data-i18n="a.copy">複製</button></div>
     </div>
 
-    <h2>設定</h2>
+    <h2 data-i18n="a.settingsTitle">設定</h2>
     <div class="card">
-      <label class="checkbox-row"><input type="checkbox" id="setting-status"> 開放投票中（取消勾選即關閉討論）</label>
-      <label class="checkbox-row"><input type="checkbox" id="setting-autoApprove"> 新陳述直接公開（否則需核准）</label>
-      <label class="checkbox-row"><input type="checkbox" id="setting-allowSubmissions"> 開放參與者提出陳述</label>
-      <label class="checkbox-row"><input type="checkbox" id="setting-openData"> 公開資料匯出</label>
+      <label class="checkbox-row"><input type="checkbox" id="setting-status"> <span data-i18n="a.settingOpen">開放投票中（取消勾選即結束討論）</span></label>
+      <label class="checkbox-row"><input type="checkbox" id="setting-autoApprove"> <span data-i18n="a.settingAutoApprove">新意見直接公開（否則需你核准）</span></label>
+      <label class="checkbox-row"><input type="checkbox" id="setting-allowSubmissions"> <span data-i18n="a.settingAllowSubmissions">開放參與者提出意見</span></label>
+      <label class="checkbox-row"><input type="checkbox" id="setting-openData"> <span data-i18n="a.settingOpenData">公開資料下載（任何人可下載匿名化 CSV）</span></label>
       <p id="settings-message" class="muted hidden"></p>
     </div>
 
-    <h2 id="pending-heading">待核准陳述</h2>
+    <h2 id="pending-heading">待核准意見</h2>
     <div class="card" id="pending-container"></div>
 
-    <h2>新增種子陳述</h2>
+    <h2 data-i18n="a.seedTitle">新增種子意見</h2>
     <div class="card">
-      <textarea id="seed-text" rows="2" maxlength="280" placeholder="以主持人身分加入一句陳述（直接公開）"></textarea>
-      <div class="actions"><button type="button" class="primary" id="seed-add">加入</button></div>
+      <textarea id="seed-text" rows="2" maxlength="280" data-i18n-placeholder="a.seedPlaceholder" placeholder="以主持人身分加入一句意見（直接公開）"></textarea>
+      <div class="actions"><button type="button" class="primary" id="seed-add" data-i18n="a.seedAdd">加入</button></div>
     </div>
 
-    <h2>全部陳述</h2>
+    <h2 data-i18n="a.allTitle">全部意見</h2>
     <div class="card" id="all-statements"></div>
 
-    <h2>資料匯出</h2>
+    <h2 data-i18n="a.exportTitle">資料下載</h2>
     <div class="actions">
-      <a class="button" id="export-statements" href="#">下載 statements.csv</a>
-      <a class="button" id="export-votes" href="#">下載 votes.csv（匿名化）</a>
+      <a class="button" id="export-statements" href="#" data-i18n="a.exportStatements">下載意見清單 CSV</a>
+      <a class="button" id="export-votes" href="#" data-i18n="a.exportVotes">下載投票紀錄 CSV（匿名化）</a>
     </div>
-    <p class="muted">votes.csv 以 p1、p2⋯ 匿名化參與者；可直接餵給 red-dwarf 等分析工具比對。</p>
+    <p class="muted" data-i18n="a.exportNote">投票紀錄以 p1、p2⋯ 匿名化，可交給任何分析工具（例如 red-dwarf）交叉驗證。</p>
   </div>
 </main>
 <footer>
-  <p>管理金鑰只存在此分頁的 sessionStorage，關閉分頁即清除。<a href="https://github.com/mashbean/polis-serverless">原始碼</a></p>
+  <p><span data-i18n="a.footerNote">管理金鑰只存在此分頁的 sessionStorage，關閉分頁即清除。</span> <a href="https://github.com/mashbean/polis-serverless" data-i18n="app.sourceLink">原始碼</a></p>
 </footer>
 <script type="module" src="/js/admin.js"></script>
 </body>

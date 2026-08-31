@@ -1,40 +1,43 @@
-# AGENT.md — 給 AI agent 的操作手冊
+# AGENT.md — operating manual for AI agents
 
-你是一個 coding agent，使用者想要「自己的 Polis」。這份文件讓你在使用者只做**一件事**（登入他自己的 Cloudflare）的前提下，替他完成其餘全部工作。
+You are a coding agent. The user wants "their own Polis". This document lets you do everything for them while the user does exactly **one** thing: log into their own Cloudflare account in the browser.
 
-polis-serverless 是跑在單一 Cloudflare Worker + Durable Object 上的完整 Polis 式意見調查（提陳述→投票→PCA+k-means 意見分群→代表性陳述與跨群共識）。免費方案即可運作，沒有伺服器與資料庫要維護。
+polis-serverless runs a complete Polis-style wikisurvey round (statement submission → agree/disagree/pass voting → PCA + k-means opinion clustering → representative statements & cross-group consensus) on a single Cloudflare Worker with Durable Object SQLite. It works on the free plan (100k requests/day, 5 GB storage). There are no servers or databases to maintain.
 
-## 部署流程（使用者只需要登入 Cloudflare）
+（中文使用者：人類讀的說明在 [README.md](README.md)；本檔案是給 agent 的，你的 agent 讀英文即可。）
+
+## Deployment (the user only logs in)
 
 ```bash
 git clone https://github.com/mashbean/polis-serverless.git
 cd polis-serverless
 npm install
-npx wrangler login   # ← 唯一需要使用者動手的一步：瀏覽器會開啟 Cloudflare 授權頁
-npm run check        # tsc + 測試 + dry-run，全綠再部署
-npm run deploy       # 完成後輸出 https://polis-serverless.<subdomain>.workers.dev
+npx wrangler login   # ← the ONE user step: a browser opens for Cloudflare OAuth
+npm run check        # tsc + tests + dry-run; deploy only when green
+npm run deploy       # prints https://polis-serverless.<subdomain>.workers.dev
 ```
 
-- `npx wrangler login` 會開瀏覽器做 OAuth。**請使用者本人**在瀏覽器完成登入與授權，你只負責執行指令與等待；不要向使用者索取 API token 或密碼。若在無瀏覽器的環境，改請使用者到 Cloudflare dashboard 建立 API Token（Edit Workers 權限）並自行設定 `CLOUDFLARE_API_TOKEN` 環境變數。
-- 沒有 Cloudflare 帳號的使用者：請他先到 <https://dash.cloudflare.com/sign-up> 註冊（免費方案即可），你不能代辦註冊。
-- 部署成功的判準：`npm run deploy` 輸出 workers.dev 網址，且 `GET <網址>/api/health` 回 `{"ok":true,...}`。
+- `npx wrangler login` opens a browser for OAuth. **The user themselves** completes the login and authorization; you only run commands and wait. Never ask the user for API tokens or passwords. In a headless environment, ask the user to create an API Token (Edit Workers permission) in the Cloudflare dashboard and export `CLOUDFLARE_API_TOKEN` themselves.
+- No Cloudflare account? Send the user to <https://dash.cloudflare.com/sign-up> (free plan is enough). You cannot register on their behalf.
+- Success criteria: `npm run deploy` prints a workers.dev URL and `GET <url>/api/health` returns `{"ok":true,...}`.
 
-### 綁自訂網域（選用）
+### Custom domain (optional)
 
-使用者的網域需已在他的 Cloudflare 帳號託管。在 `wrangler.jsonc` 的 `env.production.routes` 改成他的網域：
+The user's domain must already be on their Cloudflare account. Edit `env.production.routes` in `wrangler.jsonc`:
 
 ```jsonc
 "routes": [{ "pattern": "polis.example.com", "custom_domain": true }]
 ```
 
-然後 `npm run deploy:production`。Cloudflare 會自動建立 DNS 與憑證。
+Then `npm run deploy:production`. Cloudflare creates DNS and certificates automatically.
 
-## 替使用者走完一輪 Polis（API）
+## Running a full round via the API
 
-部署完成後，你可以直接用 API 幫使用者發起與管理討論。`BASE` 是他的部署網址。
+`BASE` is the deployment URL.
 
 ```bash
-# 1. 建立討論（回傳一次性 adminToken——交給使用者保存，不要印進共享的 log）
+# 1. Create a conversation (returns a one-time adminToken — hand it to the user
+#    privately; do not print it into shared logs)
 curl -X POST $BASE/api/conversations -H 'Content-Type: application/json' -d '{
   "title": "…", "description": "…",
   "seedStatements": ["…", "…"],
@@ -43,27 +46,28 @@ curl -X POST $BASE/api/conversations -H 'Content-Type: application/json' -d '{
 # → {conversationId, adminToken, urls:{participate, report, admin}}
 ```
 
-| 端點 | 用途 |
+| Endpoint | Purpose |
 |---|---|
-| `GET /api/conversations/:id` | 公開資訊與計數 |
-| `GET /api/conversations/:id/next?pid=<uuid>` | 抽下一句給參與者投 |
-| `POST /api/conversations/:id/votes` `{pid,sid,value:1\|-1\|0}` | 投票（1=同意） |
-| `POST /api/conversations/:id/statements` `{pid,text}` | 提出新陳述（≤280 字） |
-| `GET /api/conversations/:id/results` | 分群、代表句、共識（JSON） |
-| `GET /api/conversations/:id/export/{votes,statements}.csv` | 匿名化匯出（帶 `?token=` 或 openData 時公開） |
-| `GET/POST /api/conversations/:id/admin*` | 審核與設定（`Authorization: Bearer <adminToken>`） |
+| `GET /api/conversations/:id` | public info & counts |
+| `GET /api/conversations/:id/next?pid=<uuid>` | next statement for a participant to vote on |
+| `POST /api/conversations/:id/votes` `{pid,sid,value:1\|-1\|0}` | cast a vote (1 = agree) |
+| `POST /api/conversations/:id/statements` `{pid,text}` | submit a statement (≤280 chars) |
+| `GET /api/conversations/:id/results` | clustering, representative statements, consensus (JSON) |
+| `GET /api/conversations/:id/export/{votes,statements}.csv` | anonymized export (`?token=`, or public when openData) |
+| `GET/POST /api/conversations/:id/admin*` | moderation & settings (`Authorization: Bearer <adminToken>`) |
 
-- `pid` 是參與者自產的 UUID（網頁版存 localStorage）。程式化代理多位參與者時，每位一個固定 UUID。
-- 分享連結：參與 `/c/:id`、結果 `/r/:id`、管理 `/a/:id#token=…`（金鑰在 fragment，不會進 server log）。
+- `pid` is a participant-generated UUID (the web UI stores it in localStorage). When driving multiple simulated participants, use one fixed UUID per participant.
+- Share links: participate `/c/:id`, report `/r/:id`, admin `/a/:id#token=…` (the token lives in the URL fragment and never reaches server logs).
+- Clustering appears once 4+ participants have each voted on min(7, statement count) statements.
 
-## 安全與禮貌規則
+## Safety and etiquette
 
-- **管理金鑰**：只把 adminToken 交給使用者（或存進他指定的秘密管理處）。不要印進會被分享的輸出、不要 commit。遺失無法找回，只能重建對話。
-- **不要對別人的部署灌資料**：只在使用者自己的部署（或他明確授權的站點）上建立對話與模擬投票。官方展示站 polis.mashbean.net 有建立頻率限制（10 場/小時、50 場/天）。
-- **模擬資料要標示**：像 `scripts/seed-demo-legislature.mjs` 那樣的模擬樣本，標題與描述必須明示「模擬／虛構」，人物一律化名。
-- 預設**不要**代替使用者把 repo fork 成公開、也不要動 DNS，除非他明確要求。
-- 升級檢查：`git pull && npm install && npm run check && npm run deploy`（Durable Object 資料在 Cloudflare 端，重新部署不會消失）。
+- **Admin tokens**: hand the adminToken only to the user (or their designated secret store). Never print it into shareable output, never commit it. It cannot be recovered — only a new conversation can be created.
+- **Never flood someone else's deployment**: only create conversations or seed simulated votes on the user's own deployment (or one they explicitly authorized). The public demo site polis.mashbean.net rate-limits creation (10/hour, 50/day).
+- **Label simulations**: simulated samples (see `scripts/seed-demo-legislature.mjs` as a template) must state "simulated/fictional" in the title and description, and use pseudonyms only.
+- Do not make the user's fork public and do not touch DNS unless explicitly asked.
+- Upgrade path: `git pull && npm install && npm run check && npm run deploy` (Durable Object data lives on Cloudflare and survives redeploys).
 
-## 給人類的替代路徑
+## For humans instead
 
-不想用 agent 的使用者可以直接按 README 的 **Deploy to Cloudflare** 按鈕（Cloudflare 會 fork repo 並自動部署），或照上面六行指令手動執行。
+Users who don't want an agent can click the **Deploy to Cloudflare** button in the README (Cloudflare forks the repo and builds it automatically), or run the six commands above by hand.

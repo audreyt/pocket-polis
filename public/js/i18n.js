@@ -1,0 +1,206 @@
+// 極簡雙語系統：HTML 內是 zh-Hant 預設文字，en 由字典覆蓋。
+// 語言優先序：?lang= → localStorage → 瀏覽器語言（zh* → zh，其餘 en）。
+const STORAGE_KEY = "polis-serverless:lang";
+
+// key: [zh, en]。{名稱} 為變數插槽。
+const STRINGS = {
+  "app.loading": ["載入中⋯", "Loading…"],
+  "app.sourceLink": ["原始碼", "Source"],
+  "app.badUrl": ["網址不正確。", "This link is not valid."],
+
+  // 參與頁
+  "p.title": ["參與討論", "Join the conversation"],
+  "p.loadFail": ["無法載入這場討論", "Couldn't load this conversation"],
+  "p.agree": ["同意", "Agree"],
+  "p.disagree": ["不同意", "Disagree"],
+  "p.pass": ["略過／不確定", "Pass / Unsure"],
+  "p.progress": ["已投 {voted} / {total} 句", "Voted on {voted} of {total}"],
+  "p.progressNote": [
+    "投過的意見不會再出現；每一票都會即時更新意見地圖。",
+    "Statements you've voted on won't repeat; every vote updates the map instantly.",
+  ],
+  "p.doneTitle": ["目前的意見你都投完了。", "You've voted on everything for now."],
+  "p.doneHint": ["有人提出新意見時，回到這頁就能繼續投。", "Come back any time — new statements may appear."],
+  "p.seeReport": ["看意見地圖與結果", "See the opinion map"],
+  "p.checkAgain": ["看看有沒有新意見", "Check for new statements"],
+  "p.submitTitle": ["提出你自己的意見", "Add your own statement"],
+  "p.submitHint": [
+    "寫一句大家可以「同意」或「不同意」的完整想法（280 字內）。一次一個想法，避免問句。",
+    "Write one complete idea others can agree or disagree with (280 characters max). One idea at a time; avoid questions.",
+  ],
+  "p.submitPlaceholder": [
+    "例：比起新計畫，我們更該先把現有的事情做穩。",
+    "e.g., Before starting new projects, we should stabilize what we already run.",
+  ],
+  "p.submitButton": ["送出意見", "Submit"],
+  "p.submitApproved": ["已送出！大家現在就能對你的意見投票。", "Submitted! Everyone can now vote on your statement."],
+  "p.submitPending": ["已送出，主持人核准後就會開放投票。", "Submitted — it will open for voting once the host approves it."],
+  "p.submitFail": ["送出失敗：{msg}", "Couldn't submit: {msg}"],
+  "p.voteFail": ["投票失敗：{msg}", "Vote failed: {msg}"],
+  "p.closed": ["這場討論已結束，結果仍然可以看。", "This conversation has ended; the results remain viewable."],
+  "p.footerAnon": [
+    "參與是匿名的：你的瀏覽器只保存一個隨機代號，用來避免重複計票。",
+    "Participation is anonymous: your browser keeps only a random code to prevent double counting.",
+  ],
+  "p.footerReport": ["結果頁", "Results"],
+
+  // 結果頁
+  "r.title": ["結果", "Results"],
+  "r.loadFail": ["無法載入結果", "Couldn't load the results"],
+  "r.participants": ["參與者", "Participants"],
+  "r.votes": ["票", "Votes"],
+  "r.statements": ["意見", "Statements"],
+  "r.groups": ["意見群", "Opinion groups"],
+  "r.mapTitle": ["意見地圖", "Opinion map"],
+  "r.mapHint": [
+    "每個點是一位參與者：投票越相似的人靠得越近，顏色代表想法相近的群。投票數還不夠的參與者暫時不會出現。",
+    "Each dot is one participant: the more similarly two people voted, the closer they sit, and colors mark groups of like-minded voters. Participants with too few votes yet don't appear.",
+  ],
+  "r.mapEmpty": ["投票的人夠多之後，這裡會長出意見地圖。", "The map appears once enough people have voted."],
+  "r.youNote": ["★ 是你的位置。", "★ is you."],
+  "r.consensusTitle": ["跨群共識", "Common ground"],
+  "r.consensusHint": [
+    "每一群都傾向同一邊的意見——立場不同的人仍然共享的看法。",
+    "Statements every group leans the same way on — what people share despite their differences.",
+  ],
+  "r.consensusEmpty": ["還沒有跨群共識的意見（或投票數還不夠）。", "No common ground yet (or not enough votes)."],
+  "r.mostlyAgree": ["多數同意", "Mostly agree"],
+  "r.mostlyDisagree": ["多數不同意", "Mostly disagree"],
+  "r.groupsTitle": ["各群最有代表性的意見", "What makes each group distinct"],
+  "r.groupsHint": [
+    "這些意見最能區分這個群和其他群（差異經過統計檢定確認）。",
+    "The statements that most distinguish each group from the others (statistically tested).",
+  ],
+  "r.groupsEmpty": ["夠多人投夠多票之後（4 人以上），會自動分出意見群。", "Groups appear automatically once 4+ people have voted enough."],
+  "r.groupLabel": ["群 {label} · {size} 人", "Group {label} · {size} people"],
+  "r.repLine": ["{p}% {dir}（其他群的 {x} 倍）", "{p}% {dir} ({x}× the other groups)"],
+  "r.agreeWord": ["同意", "agree"],
+  "r.disagreeWord": ["不同意", "disagree"],
+  "r.groupNone": ["還沒有顯著的代表性意見。", "No distinctive statements yet."],
+  "r.allTitle": ["全部意見", "All statements"],
+  "r.allEmpty": ["還沒有意見。", "No statements yet."],
+  "r.counts": ["同意 {a} · 不同意 {d} · 略過 {p}", "Agree {a} · Disagree {d} · Pass {p}"],
+  "r.participate": ["去投票", "Vote now"],
+  "r.refresh": ["重新整理結果", "Refresh"],
+  "r.computedAt": [
+    "最後更新：{time}（已有 {n} 人投滿 {m} 句、進入地圖）",
+    "Last updated {time} ({n} participants with {m}+ votes are on the map)",
+  ],
+  "r.methodNote": ["分群方法白話說明", "How the clustering works"],
+
+  // 管理頁
+  "a.title": ["管理頁", "Host controls"],
+  "a.manage": ["管理：{title}", "Hosting: {title}"],
+  "a.needToken": [
+    "需要管理金鑰。請貼上建立討論時取得的管理連結或 32 碼金鑰：",
+    "A host key is required. Paste the admin link (or the 32-character key) you received when creating the conversation:",
+  ],
+  "a.tokenPlaceholder": ["管理連結或金鑰", "Admin link or key"],
+  "a.enter": ["進入管理", "Enter"],
+  "a.badToken": ["看不出金鑰格式（應為 32 碼十六進位）。", "That doesn't look like a key (expected 32 hex characters)."],
+  "a.invalidToken": ["金鑰無效或已失效。", "This key is not valid."],
+  "a.shareTitle": ["分享連結", "Share links"],
+  "a.participateLink": ["參與連結", "Participation link"],
+  "a.reportLink": ["結果頁", "Results page"],
+  "a.copy": ["複製", "Copy"],
+  "a.copied": ["已複製", "Copied"],
+  "a.settingsTitle": ["設定", "Settings"],
+  "a.settingOpen": ["開放投票中（取消勾選即結束討論）", "Voting open (untick to close the conversation)"],
+  "a.settingAutoApprove": ["新意見直接公開（否則需你核准）", "New statements publish immediately (otherwise you approve each one)"],
+  "a.settingAllowSubmissions": ["開放參與者提出意見", "Participants can add statements"],
+  "a.settingOpenData": ["公開資料下載（任何人可下載匿名化 CSV）", "Public data export (anyone can download the anonymized CSV)"],
+  "a.saved": ["已儲存。", "Saved."],
+  "a.saveFail": ["儲存失敗：{msg}", "Couldn't save: {msg}"],
+  "a.pendingTitle": ["待核准意見（{n}）", "Waiting for approval ({n})"],
+  "a.pendingEmpty": ["沒有待核准的意見。", "Nothing waiting for approval."],
+  "a.approve": ["核准", "Approve"],
+  "a.reject": ["退回", "Reject"],
+  "a.unpublish": ["下架", "Unpublish"],
+  "a.republish": ["重新上架", "Republish"],
+  "a.actionFail": ["操作失敗：{msg}", "Action failed: {msg}"],
+  "a.seedTitle": ["新增種子意見", "Add a seed statement"],
+  "a.seedPlaceholder": ["以主持人身分加入一句意見（直接公開）", "Add a statement as the host (publishes immediately)"],
+  "a.seedAdd": ["加入", "Add"],
+  "a.seedFail": ["新增失敗：{msg}", "Couldn't add: {msg}"],
+  "a.allTitle": ["全部意見", "All statements"],
+  "a.statusApproved": ["公開中", "Published"],
+  "a.statusPending": ["待核准", "Pending"],
+  "a.statusRejected": ["已退回", "Rejected"],
+  "a.countsSeed": ["同意 {a} · 不同意 {d} · 略過 {p}{seed}", "Agree {a} · Disagree {d} · Pass {p}{seed}"],
+  "a.seedMark": [" · 種子", " · seed"],
+  "a.exportTitle": ["資料下載", "Data export"],
+  "a.exportStatements": ["下載意見清單 CSV", "Download statements.csv"],
+  "a.exportVotes": ["下載投票紀錄 CSV（匿名化）", "Download votes.csv (anonymized)"],
+  "a.exportNote": [
+    "投票紀錄以 p1、p2⋯ 匿名化，可交給任何分析工具（例如 red-dwarf）交叉驗證。",
+    "Votes are anonymized as p1, p2, …; the CSV works with external analysis tools (e.g. red-dwarf).",
+  ],
+  "a.footerNote": [
+    "管理金鑰只存在此分頁的 sessionStorage，關閉分頁即清除。",
+    "The host key lives only in this tab's sessionStorage and is cleared when the tab closes.",
+  ],
+};
+
+export function currentLang() {
+  const fromQuery = new URLSearchParams(location.search).get("lang");
+  if (fromQuery === "en" || fromQuery === "zh") {
+    try {
+      localStorage.setItem(STORAGE_KEY, fromQuery);
+    } catch {
+      /* ignore */
+    }
+    return fromQuery;
+  }
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === "en" || stored === "zh") return stored;
+  } catch {
+    /* ignore */
+  }
+  return (navigator.language || "zh").toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
+let lang = currentLang();
+
+export function t(key, vars = {}) {
+  const entry = STRINGS[key];
+  let text = entry ? entry[lang === "en" ? 1 : 0] : key;
+  for (const [name, value] of Object.entries(vars)) {
+    text = text.replaceAll(`{${name}}`, String(value));
+  }
+  return text;
+}
+
+export function applyI18n(root = document) {
+  document.documentElement.lang = lang === "en" ? "en" : "zh-Hant";
+  for (const el of root.querySelectorAll("[data-i18n]")) {
+    el.textContent = t(el.dataset.i18n);
+  }
+  for (const el of root.querySelectorAll("[data-i18n-placeholder]")) {
+    el.setAttribute("placeholder", t(el.dataset.i18nPlaceholder));
+  }
+}
+
+/** 在指定節點掛上「中文｜EN」切換 */
+export function mountLangSwitch(node) {
+  if (!node) return;
+  const other = lang === "en" ? "zh" : "en";
+  const link = document.createElement("a");
+  link.href = "#";
+  link.textContent = lang === "en" ? "中文" : "EN";
+  link.setAttribute("aria-label", "Switch language");
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    try {
+      localStorage.setItem(STORAGE_KEY, other);
+    } catch {
+      /* ignore */
+    }
+    const url = new URL(location.href);
+    url.searchParams.delete("lang");
+    location.href = url.toString();
+  });
+  node.append(link);
+}
+
+export { lang };

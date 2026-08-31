@@ -47,6 +47,9 @@ const PAGE_REWRITES: [RegExp, string][] = [
   [/^\/c\/[a-z0-9]{10}$/, "/participate"],
   [/^\/r\/[a-z0-9]{10}$/, "/report"],
   [/^\/a\/[a-z0-9]{10}$/, "/admin"],
+  [/^\/en$/, "/en"],
+  [/^\/guide$/, "/guide"],
+  [/^\/en\/guide$/, "/guide-en"],
 ];
 
 async function servePage(request: Request, env: Env, url: URL): Promise<Response> {

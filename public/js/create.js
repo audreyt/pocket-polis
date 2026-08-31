@@ -27,9 +27,11 @@ form.addEventListener("submit", async (event) => {
       },
     });
     const origin = location.origin;
-    const participate = `${origin}${data.urls.participate}`;
-    const report = `${origin}${data.urls.report}`;
-    const admin = `${origin}${data.urls.admin}`;
+    // 從英文版首頁建立時，分享連結帶上 ?lang=en，讓參與者直接看到英文介面
+    const langQuery = document.documentElement.lang === "en" ? "?lang=en" : "";
+    const participate = `${origin}${data.urls.participate}${langQuery}`;
+    const report = `${origin}${data.urls.report}${langQuery}`;
+    const admin = `${origin}${data.urls.admin.replace("#", `${langQuery}#`)}`;
     document.getElementById("participate-url").textContent = participate;
     document.getElementById("report-url").textContent = report;
     document.getElementById("admin-url").textContent = admin;
@@ -39,7 +41,8 @@ form.addEventListener("submit", async (event) => {
     form.classList.add("hidden");
     createdPanel.scrollIntoView({ behavior: "smooth" });
   } catch (error) {
-    errorNode.textContent = `建立失敗：${error.message}`;
+    const isEn = document.documentElement.lang === "en";
+    errorNode.textContent = (isEn ? "Couldn't create: " : "建立失敗：") + error.message;
     show(errorNode, true);
     button.disabled = false;
   }

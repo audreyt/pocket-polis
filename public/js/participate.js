@@ -1,4 +1,8 @@
 import { api, conversationIdFromPath, getPid, show } from "./common.js";
+import { applyI18n, mountLangSwitch, t } from "./i18n.js";
+
+applyI18n();
+mountLangSwitch(document.getElementById("lang-switch"));
 
 const convId = conversationIdFromPath();
 const pid = convId ? getPid(convId) : null;
@@ -18,7 +22,7 @@ let current = null;
 let busy = false;
 
 function fail(message) {
-  titleNode.textContent = "無法載入討論";
+  titleNode.textContent = t("p.loadFail");
   loadError.textContent = message;
   show(loadError, true);
 }
@@ -32,7 +36,7 @@ async function loadInfo() {
   document.getElementById("report-link").href = reportUrl;
   document.getElementById("footer-report").href = reportUrl;
   if (info.status !== "open") {
-    document.getElementById("closed-note").style.display = "block";
+    show(document.getElementById("closed-note"), true);
     return { open: false, info };
   }
   show(submitSection, info.allowSubmissions);
@@ -42,7 +46,7 @@ async function loadInfo() {
 function renderProgress(progress) {
   const percent = progress.total > 0 ? Math.round((progress.voted / progress.total) * 100) : 0;
   progressFill.style.width = `${percent}%`;
-  progressText.textContent = `已投 ${progress.voted} / ${progress.total} 句`;
+  progressText.textContent = t("p.progress", { voted: progress.voted, total: progress.total });
 }
 
 async function loadNext() {
@@ -71,7 +75,7 @@ document.querySelector(".vote-buttons").addEventListener("click", async (event) 
     });
     await loadNext();
   } catch (error) {
-    fail(`投票失敗：${error.message}`);
+    fail(t("p.voteFail", { msg: error.message }));
   } finally {
     busy = false;
   }
@@ -90,14 +94,11 @@ document.getElementById("submit-statement").addEventListener("click", async () =
       body: { pid, text },
     });
     textarea.value = "";
-    submitMessage.textContent =
-      result.status === "approved"
-        ? "已送出！你的陳述現在開放大家投票。"
-        : "已送出，等主持人核准後開放投票。";
+    submitMessage.textContent = result.status === "approved" ? t("p.submitApproved") : t("p.submitPending");
     show(submitMessage, true);
     if (result.status === "approved") await loadNext();
   } catch (error) {
-    submitMessage.textContent = `送出失敗：${error.message}`;
+    submitMessage.textContent = t("p.submitFail", { msg: error.message });
     show(submitMessage, true);
   } finally {
     busy = false;
@@ -105,7 +106,7 @@ document.getElementById("submit-statement").addEventListener("click", async () =
 });
 
 (async () => {
-  if (!convId) return fail("網址不正確。");
+  if (!convId) return fail(t("app.badUrl"));
   try {
     const { open } = await loadInfo();
     if (open) await loadNext();

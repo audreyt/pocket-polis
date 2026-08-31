@@ -23,7 +23,7 @@ describe("wrangler.jsonc", () => {
   it("靜態資產 binding 與 run_worker_first 路徑", () => {
     expect(wrangler.assets.directory).toBe("./public");
     expect(wrangler.assets.binding).toBe("ASSETS");
-    for (const path of ["/", "/api/*", "/c/*", "/r/*", "/a/*"]) {
+    for (const path of ["/", "/api/*", "/c/*", "/r/*", "/a/*", "/en", "/en/*", "/guide"]) {
       expect(wrangler.assets.run_worker_first).toContain(path);
     }
   });
@@ -70,6 +70,26 @@ describe("README", () => {
   it("指向線上展示站與 AGENT.md", () => {
     expect(readme).toContain("https://polis.mashbean.net");
     expect(readme).toContain("AGENT.md");
+  });
+});
+
+describe("雙語頁面", () => {
+  it("中英 landing 與指南頁存在且互相連結", () => {
+    const zh = read("public/index.html");
+    const en = read("public/en.html");
+    expect(zh).toContain('href="/en"');
+    expect(zh).toContain('href="/guide"');
+    expect(en).toContain('href="/"');
+    expect(en).toContain('href="/en/guide"');
+    expect(read("public/guide.html")).toContain('href="/en/guide"');
+    expect(read("public/guide-en.html")).toContain('href="/guide"');
+  });
+
+  it("應用頁掛上 i18n", () => {
+    for (const page of ["participate", "report", "admin"]) {
+      expect(read(`public/${page}.html`)).toContain("data-i18n");
+    }
+    expect(read("public/js/i18n.js")).toContain("STRINGS");
   });
 });
 

@@ -3,41 +3,95 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>polis-serverless — 免自架伺服器的一輪 Polis</title>
-  <meta name="description" content="用一個 Cloudflare Worker 走完一輪 Polis 式意見調查：提陳述、投票、意見分群、共識報告。GitHub + Cloudflare 就夠，沒有伺服器要維護。">
+  <title>polis-serverless — 讓一群人看見彼此的共識</title>
+  <meta name="description" content="免費、免架站的意見調查工具：大家丟出看法、互相投票，系統即時畫出意見地圖——哪裡分成幾派、哪裡其實有共識，一目了然。">
+  <meta property="og:title" content="polis-serverless — 讓一群人看見彼此的共識">
+  <meta property="og:description" content="免費、免架站的 Polis 式意見調查：意見地圖、分群、跨群共識，發個連結就開始。">
+  <meta property="og:url" content="https://polis.mashbean.net/">
   <link rel="stylesheet" href="/style.css">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 </head>
 <body>
 <main>
-  <h1>polis-serverless</h1>
-  <p class="tagline">免自架伺服器的完整一輪 <a href="https://compdemocracy.org/polis/">Polis</a> 式意見調查：大家提陳述、對彼此的陳述投「同意／不同意／略過」，系統即時畫出<strong>意見地圖</strong>、找出各群的<strong>代表性立場</strong>與<strong>跨群共識</strong>。一個 Cloudflare Worker 就是整套系統。</p>
-  <div class="actions hero-actions">
-    <a class="button primary" href="/r/3ovoxq5c6o">看 demo 意見地圖</a>
-    <a class="button" href="#create">發起一場討論</a>
-    <a class="button" href="#self-host">部署自己的</a>
+  <nav class="site-nav">
+    <a class="wordmark" href="/">polis-serverless</a>
+    <a href="/guide">實務指南</a>
+    <a href="/r/3ovoxq5c6o">示範</a>
+    <a href="#self-host">自己架一個</a>
+    <a class="lang" href="/en">EN</a>
+  </nav>
+
+  <div class="hero">
+    <div>
+      <h1>讓一群人，<br>看見彼此真正的共識</h1>
+      <p class="tagline">polis-serverless 是免費、開源的意見調查工具：大家丟出看法、對彼此的看法投「同意／不同意」，系統即時畫出<strong>意見地圖</strong>——哪裡分成幾派、哪裡其實有共識，一目了然。發一個連結就能開始，不用註冊、不用架網站。</p>
+      <div class="actions hero-actions">
+        <a class="button primary" href="#create">免費發起一場討論</a>
+        <a class="button" href="/r/3ovoxq5c6o">先看示範</a>
+      </div>
+      <p class="trust-line">開源 MIT · 匿名參與、無追蹤 · 資料可整包帶走 · 分群方法通過官方 Polis 公開資料驗證</p>
+    </div>
+    <div class="hero-figure" aria-hidden="true">
+      <svg viewBox="0 0 320 240" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="318" height="238" rx="12" fill="var(--surface)" stroke="var(--border)"/>
+        <g fill="var(--group-1)" fill-opacity="0.75">
+          <circle cx="70" cy="88" r="6"/><circle cx="95" cy="70" r="6"/><circle cx="58" cy="120" r="6"/>
+          <circle cx="88" cy="112" r="6"/><circle cx="112" cy="92" r="6"/><circle cx="76" cy="150" r="6"/>
+          <circle cx="104" cy="138" r="6"/><circle cx="52" cy="66" r="6"/><circle cx="126" cy="118" r="6"/>
+        </g>
+        <g fill="var(--group-0)" fill-opacity="0.75">
+          <circle cx="222" cy="94" r="6"/><circle cx="248" cy="78" r="6"/><circle cx="210" cy="126" r="6"/>
+          <circle cx="240" cy="116" r="6"/><circle cx="264" cy="100" r="6"/><circle cx="228" cy="152" r="6"/>
+          <circle cx="256" cy="140" r="6"/><circle cx="204" cy="72" r="6"/><circle cx="276" cy="124" r="6"/>
+        </g>
+        <circle cx="88" cy="108" r="24" fill="none" stroke="var(--group-1)" stroke-width="2" stroke-dasharray="4 4"/>
+        <circle cx="240" cy="112" r="24" fill="none" stroke="var(--group-0)" stroke-width="2" stroke-dasharray="4 4"/>
+        <text x="88" y="63" text-anchor="middle" font-size="12" font-weight="700" fill="var(--group-1)">B</text>
+        <text x="240" y="63" text-anchor="middle" font-size="12" font-weight="700" fill="var(--group-0)">A</text>
+        <text x="160" y="130" text-anchor="middle" font-size="15" fill="var(--text)">★</text>
+        <rect x="92" y="188" width="136" height="26" rx="13" fill="var(--agree)" fill-opacity="0.15" stroke="var(--agree)"/>
+        <text x="160" y="205" text-anchor="middle" font-size="12" fill="var(--agree)">跨群共識 83%</text>
+      </svg>
+    </div>
   </div>
 
-  <h2>Demo：【模擬】國防軍購特別預算公投</h2>
+  <h2>適合什麼場合</h2>
+  <div class="cards-3">
+    <div class="card">
+      <h3>社群要做決定</h3>
+      <p>社團、學校、社區、合作社：「接下來一年最該做什麼？」比起投票表決，先看清楚大家的想法分布。</p>
+    </div>
+    <div class="card">
+      <h3>開會前先收意見</h3>
+      <p>把爭點和共識在會前攤開，會議時間直接花在真正有分歧的地方。</p>
+    </div>
+    <div class="card">
+      <h3>工作坊現場</h3>
+      <p>20–50 人掃 QR code 即投，15 分鐘就能一起看意見地圖，接著分組討論。</p>
+    </div>
+  </div>
+
+  <h2>一場討論怎麼進行</h2>
+  <ol class="steps">
+    <li><strong>準備</strong>——訂一個開放式題目，寫 8–15 句「種子意見」（一句一個想法，大家可以同意或不同意）。</li>
+    <li><strong>發連結</strong>——參與的人打開連結就能投票，不用註冊；也可以隨時丟出自己的意見。</li>
+    <li><strong>看地圖</strong>——結果頁即時更新：投票相似的人靠在一起、自動分群；每群最有代表性的意見、以及<strong>所有群都同意的共識</strong>會被自動找出來。</li>
+    <li><strong>收尾</strong>——和大家一起讀地圖（先看共識、再看分歧），需要的話下載完整資料（匿名化 CSV）。</li>
+  </ol>
+  <p class="muted">主持技巧、種子意見怎麼寫、要多少人：都在<a href="/guide">實務指南</a>。</p>
+
+  <h2>示範：【模擬】國防軍購特別預算公投</h2>
   <div class="card">
-    <p>113 位<strong>虛構</strong>立法委員（化名取自台灣物種與地景，非真實個人）依第 11 屆立法院政黨席次結構——綠 51、藍 52、白 8、無黨籍 2——由程式模擬投票。地圖分裂成 62:51 兩群、沿著「兩岸對話 vs 軍購嚇阻」「特別預算舉債」的斷層線對立，卻在<strong>透明、監督、全民防衛韌性</strong>等五句陳述上出現 67–83% 的跨群共識。</p>
-    <p class="muted">對話開放中：你的每一票都會即時改變地圖。模擬方法與快照見 <a href="https://github.com/mashbean/polis-serverless/blob/main/docs/demo-legislature-sim.md">案例說明</a>。</p>
+    <p>113 位<strong>虛構</strong>立法委員（化名取自台灣物種與地景，非真實個人）依政黨席次結構由程式模擬投票。地圖分成 62:51 兩群、沿著「兩岸對話 vs 軍購嚇阻」的斷層線對立——但在<strong>透明、監督、全民防衛韌性</strong>等五句意見上，出現 67–83% 的跨群共識。</p>
+    <p class="muted">討論開放中：你的每一票都會即時改變地圖。模擬方法見<a href="https://github.com/mashbean/polis-serverless/blob/main/docs/demo-legislature-sim.md">案例說明</a>。</p>
     <div class="actions">
       <a class="button primary" href="/c/3ovoxq5c6o">加入投票</a>
       <a class="button" href="/r/3ovoxq5c6o">看意見地圖與共識</a>
     </div>
   </div>
 
-  <h2>一輪怎麼走</h2>
-  <ol class="steps">
-    <li><strong>發起</strong>——設定題目與 5–15 句種子陳述，立刻拿到參與、結果、管理三條連結。</li>
-    <li><strong>參與</strong>——參與者匿名投票（一句一句來），也能提出自己的陳述；票少的新陳述會優先曝光。</li>
-    <li><strong>收斂</strong>——投票矩陣經 PCA + k-means 分群（silhouette 自動選 2–5 群），產出各群代表性陳述（90% 顯著性檢定）、跨群共識清單、匿名化 CSV。</li>
-  </ol>
-  <p class="muted">演算法忠實度：用官方 Polis 開放資料（CC BY 4.0）驗證，vTaiwan UberX、Brexit、Bowling Green 三個資料集群數全對、與官方分群的 Adjusted Rand Index 0.78–0.86；22.5 萬票的資料集 236ms 算完。細節見<a href="https://github.com/mashbean/polis-serverless/blob/main/docs/validation-opendata.md">驗證報告</a>。</p>
-
   <h2 id="create">發起一場討論</h2>
-  <p class="muted">直接用這個展示站（資料存在展示站的 Durable Object；正式使用建議<a href="#self-host">部署自己的</a>）。</p>
+  <p class="muted">直接用這個公用示範站就能開始（想要自己的網站與資料，見下方「<a href="#self-host">自己架一個</a>」）。</p>
   <form id="create-form" class="card">
     <label for="title">題目</label>
     <input type="text" id="title" name="title" maxlength="120" required placeholder="例：我們的社群接下來一年最該做什麼？">
@@ -45,12 +99,12 @@
     <label for="description">說明（選填）</label>
     <textarea id="description" name="description" rows="3" maxlength="2000" placeholder="給參與者的背景說明"></textarea>
 
-    <label for="seeds">種子陳述（一行一句，建議 5–15 句）</label>
+    <label for="seeds">種子意見（一行一句，建議 8–15 句）</label>
     <textarea id="seeds" name="seeds" rows="6" placeholder="例：&#10;我們應該優先改善新成員的加入體驗。&#10;線上聚會比實體聚會更適合我們。"></textarea>
 
-    <label class="checkbox-row"><input type="checkbox" id="auto-approve" checked> 參與者提出的陳述直接公開（取消勾選則需你逐一核准）</label>
-    <label class="checkbox-row"><input type="checkbox" id="allow-submissions" checked> 開放參與者提出新陳述</label>
-    <label class="checkbox-row"><input type="checkbox" id="open-data"> 公開資料匯出（任何人可下載匿名化的投票 CSV）</label>
+    <label class="checkbox-row"><input type="checkbox" id="auto-approve" checked> 參與者提出的新意見直接公開（不勾＝需要你先核准）</label>
+    <label class="checkbox-row"><input type="checkbox" id="allow-submissions" checked> 開放參與者提出新意見</label>
+    <label class="checkbox-row"><input type="checkbox" id="open-data"> 公開資料下載（任何人可下載匿名化的投票紀錄）</label>
 
     <div class="actions">
       <button type="submit" class="primary" id="create-button">建立討論</button>
@@ -64,39 +118,38 @@
     <div class="link-row"><code id="participate-url"></code><button type="button" data-copy="participate-url">複製</button></div>
     <p><strong>結果頁</strong>（即時意見地圖，任何人可看）：</p>
     <div class="link-row"><code id="report-url"></code><button type="button" data-copy="report-url">複製</button></div>
-    <p><strong>管理連結</strong>（含管理金鑰，只給主持人；<strong>遺失無法找回</strong>，請立即保存）：</p>
+    <p><strong>管理連結</strong>（只給主持人；<strong>遺失無法找回</strong>，請立刻存到安全的地方）：</p>
     <div class="link-row"><code id="admin-url"></code><button type="button" data-copy="admin-url">複製</button></div>
-    <p class="muted">管理金鑰放在網址的 # 之後，不會被送到伺服器記錄。</p>
+    <p class="muted">管理金鑰放在網址「#」之後，不會被送到伺服器、也不會出現在任何紀錄裡。</p>
     <div class="actions">
       <a id="admin-link" class="button primary" href="#">前往管理頁</a>
       <a id="participate-link" class="button" href="#">先去投票</a>
     </div>
   </section>
 
-  <h2 id="self-host">把它變成你的</h2>
-  <p>這裡是展示站。正式使用請部署到<strong>你自己的 Cloudflare 帳號</strong>——資料存在你自己的 Durable Object SQLite，免費方案就能跑，沒有伺服器要維護。三條路：</p>
+  <h2 id="self-host">自己架一個（不用租伺服器、不用懂維運）</h2>
+  <p>想要「自己的網址、自己的資料」時，把它部署到你自己的 Cloudflare 帳號。Cloudflare 是大型網路服務商，<strong>免費方案就夠</strong>跑數百人的討論；資料存在你的帳號裡，隨時可整包下載帶走。三條路：</p>
 
   <div class="card">
-    <h3>A · 讓你的 AI agent 來</h3>
-    <p>把下面這段貼給 Claude Code、Cursor 等 coding agent。你只需要在瀏覽器完成 <code>wrangler login</code> 的 Cloudflare 登入，其他（安裝、檢查、部署、建立第一場討論）都交給它。</p>
+    <h3>A · 交給你的 AI 助手</h3>
+    <p>把下面這段話貼給 Claude Code、Cursor 等 AI 程式助手。你只需要在瀏覽器按一次「登入 Cloudflare」，其他都交給它。</p>
     <pre id="agent-prompt">請照 https://github.com/mashbean/polis-serverless/blob/main/AGENT.md 的說明，把 polis-serverless 部署到我的 Cloudflare 帳號（wrangler login 那一步我自己完成），部署完成後用 API 幫我建立第一場討論。</pre>
     <div class="actions">
       <button type="button" data-copy="agent-prompt">複製這段話</button>
-      <a class="button" href="https://github.com/mashbean/polis-serverless/blob/main/AGENT.md">看 AGENT.md</a>
+      <a class="button" href="https://github.com/mashbean/polis-serverless/blob/main/AGENT.md">給 AI 的說明書</a>
     </div>
-    <p class="muted">Claude Code 使用者也可以先安裝 skill：<code>npx --yes github:mashbean/polis-serverless install-skill</code></p>
   </div>
 
   <div class="card">
-    <h3>B · 一鍵部署</h3>
-    <p>登入 Cloudflare 後按下按鈕，Cloudflare 會 fork 這個 repo 到你的 GitHub 並自動建置部署。</p>
+    <h3>B · 一鍵部署按鈕</h3>
+    <p>登入 Cloudflare 後按下按鈕，系統會自動複製程式並部署，全程按「下一步」就好。</p>
     <div class="actions">
       <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/polis-serverless"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"></a>
     </div>
   </div>
 
   <div class="card">
-    <h3>C · 手動六行</h3>
+    <h3>C · 會用終端機的人：六行指令</h3>
     <pre id="manual-steps">git clone https://github.com/mashbean/polis-serverless.git
 cd polis-serverless
 npm install
@@ -106,14 +159,33 @@ npm run deploy</pre>
     <div class="actions">
       <button type="button" data-copy="manual-steps">複製指令</button>
     </div>
-    <p class="muted">要綁自訂網域：把 <code>wrangler.jsonc</code> 的 <code>env.production.routes</code> 改成你的網域後 <code>npm run deploy:production</code>。</p>
   </div>
 
-  <h2>資料與隱私</h2>
-  <p class="muted">參與是匿名的：瀏覽器只存一個隨機代號避免重複計票，不蒐集姓名、email，無 cookie、無追蹤器。管理金鑰走 URL fragment、伺服器只存 SHA-256。匯出的 CSV 以 p1、p2⋯匿名化。誠實聲明：這種輕量身分擋不住刻意灌票，適合信任圈內的社群、課堂與工作坊；高對抗性的公共諮詢請用官方 pol.is。</p>
+  <h2>常見問題</h2>
+  <details class="faq">
+    <summary>真的不用架伺服器嗎？</summary>
+    <p>對。「無伺服器」的意思是<strong>沒有一台你需要照顧的機器</strong>——不用租主機、不用備份資料庫、不用半夜重開機。程式放在 Cloudflare 的雲端服務上，有人投票才運轉，平常不耗資源也不收費。技術上的完整說明（包括我們比較過哪些替代方案）在<a href="https://github.com/mashbean/polis-serverless/blob/main/docs/is-this-serverless.md">這份文件</a>。</p>
+  </details>
+  <details class="faq">
+    <summary>參與的人會被記名嗎？</summary>
+    <p>不會。不用註冊、不填 email；瀏覽器只保存一個隨機代號避免重複計票。結果頁和下載的資料裡都沒有任何身分資訊。誠實提醒：這種輕量做法擋不住刻意的灌票，適合彼此有基本信任的社群、課堂、工作坊；高對抗性的公共諮詢請用官方 pol.is。</p>
+  </details>
+  <details class="faq">
+    <summary>需要多少人參加才有意義？</summary>
+    <p>4 人以上（每人投滿門檻票數）就會開始分群；20 人以上地圖趨於穩定。系統設計上支撐到數百至上千人。</p>
+  </details>
+  <details class="faq">
+    <summary>它和官方 pol.is 有什麼不同？</summary>
+    <p>官方 pol.is 是成熟的大型平台，需要工程團隊自架或申請使用。polis-serverless 依公開文獻重新實作同一套分群方法（並用官方公開資料驗證過，三個資料集的分群一致性 ARI 0.78–0.86），換來「按一次就部署、免費跑」的輕量性。與官方團隊（The Computational Democracy Project）無隸屬關係。</p>
+  </details>
+  <details class="faq">
+    <summary>資料存在哪裡？可以帶走嗎？</summary>
+    <p>存在部署者的 Cloudflare 帳號裡，每場討論各自獨立。主持人隨時可以下載完整的意見清單與投票紀錄（匿名化 CSV），也可以選擇開放任何人下載。</p>
+  </details>
 </main>
 <footer>
-  <p>原始碼：<a href="https://github.com/mashbean/polis-serverless">github.com/mashbean/polis-serverless</a>（MIT）。演算法依 Polis 公開文獻重新實作，與 The Computational Democracy Project 的 pol.is 無隸屬關係。驗證資料：compdemocracy openData（CC BY 4.0）。</p>
+  <p><a href="/guide">實務指南</a> · <a href="https://github.com/mashbean/polis-serverless">原始碼</a>（MIT）· <a href="/en">English</a><br>
+  分群方法依 Polis 公開文獻重新實作，與 The Computational Democracy Project 的 pol.is 無隸屬關係。驗證資料：compdemocracy openData（CC BY 4.0）。</p>
 </footer>
 <script type="module" src="/js/create.js"></script>
 </body>

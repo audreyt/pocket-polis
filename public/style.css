@@ -80,6 +80,127 @@ h3 {
   margin: 1.2rem 0 0.6rem;
 }
 
+.page-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.lang-switch a,
+.site-nav .lang {
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.12rem 0.6rem;
+  white-space: nowrap;
+}
+
+.lang-switch a:hover,
+.site-nav .lang:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.1rem 0 0.4rem;
+}
+
+.site-nav .wordmark {
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+  margin-right: auto;
+}
+
+.site-nav a:not(.wordmark):not(.lang) {
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.site-nav a:not(.wordmark):not(.lang):hover {
+  color: var(--accent);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 5fr 4fr;
+  gap: 2rem;
+  align-items: center;
+  margin: 1.6rem 0 0.8rem;
+}
+
+.hero h1 {
+  font-size: 1.9rem;
+}
+
+.hero-figure svg {
+  width: 100%;
+  height: auto;
+}
+
+@media (max-width: 640px) {
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .hero-figure {
+    max-width: 340px;
+  }
+}
+
+.trust-line {
+  color: var(--muted);
+  font-size: 0.84rem;
+  margin-top: 0.9rem;
+}
+
+.cards-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.cards-3 .card {
+  margin: 0;
+}
+
+.cards-3 h3 {
+  margin-bottom: 0.35rem;
+}
+
+.cards-3 p {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+details.faq {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1.1rem;
+  margin: 0.55rem 0;
+}
+
+details.faq summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+details.faq p {
+  margin-top: 0.6rem;
+  color: var(--muted);
+}
+
 .steps {
   padding-left: 1.3rem;
   margin: 0.6rem 0;
@@ -409,4 +530,8 @@ footer {
 
 .hidden {
   display: none !important;
+}
+
+.mt-lg {
+  margin-top: 1.5rem;
 }

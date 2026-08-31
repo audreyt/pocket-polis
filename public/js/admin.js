@@ -1,4 +1,8 @@
 import { api, conversationIdFromPath, copyText, el, show } from "./common.js";
+import { applyI18n, mountLangSwitch, t } from "./i18n.js";
+
+applyI18n();
+mountLangSwitch(document.getElementById("lang-switch"));
 
 const convId = conversationIdFromPath();
 const storageKey = `polis-serverless:admin:${convId}`;
@@ -42,8 +46,8 @@ const authHeaders = () => ({ Authorization: `Bearer ${token}` });
 async function refresh() {
   const overview = await api(`/api/conversations/${convId}/admin`, { headers: authHeaders() });
   const { settings, statements } = overview;
-  document.getElementById("conv-title").textContent = `管理：${settings.title}`;
-  document.title = `管理：${settings.title} — polis-serverless`;
+  document.getElementById("conv-title").textContent = t("a.manage", { title: settings.title });
+  document.title = `${t("a.manage", { title: settings.title })} — polis-serverless`;
 
   const origin = location.origin;
   document.getElementById("participate-url").textContent = `${origin}/c/${convId}`;
@@ -57,14 +61,14 @@ async function refresh() {
   const pending = statements.filter((s) => s.status === "pending");
   const pendingContainer = document.getElementById("pending-container");
   pendingContainer.replaceChildren();
-  document.getElementById("pending-heading").textContent = `待核准陳述（${pending.length}）`;
+  document.getElementById("pending-heading").textContent = t("a.pendingTitle", { n: pending.length });
   if (pending.length === 0) {
-    pendingContainer.append(el("p", { class: "muted", text: "沒有待核准的陳述。" }));
+    pendingContainer.append(el("p", { class: "muted", text: t("a.pendingEmpty") }));
   }
   for (const s of pending) {
-    const approve = el("button", { class: "primary", text: "核准" });
+    const approve = el("button", { class: "primary", text: t("a.approve") });
     approve.addEventListener("click", () => moderate(s.sid, "approve"));
-    const reject = el("button", { text: "退回" });
+    const reject = el("button", { text: t("a.reject") });
     reject.addEventListener("click", () => moderate(s.sid, "reject"));
     pendingContainer.append(
       el("div", { class: "statement-row" }, [
@@ -76,22 +80,29 @@ async function refresh() {
 
   const all = document.getElementById("all-statements");
   all.replaceChildren();
-  const statusText = { approved: "公開中", pending: "待核准", rejected: "已退回" };
+  const statusText = {
+    approved: t("a.statusApproved"),
+    pending: t("a.statusPending"),
+    rejected: t("a.statusRejected"),
+  };
   for (const s of statements) {
     const nodes = [
       el("span", { class: `tag ${s.status === "pending" ? "pending" : ""}`, text: statusText[s.status] || s.status }),
       " ",
-      el("span", { class: "muted", text: `同意 ${s.agrees} · 不同意 ${s.disagrees} · 略過 ${s.passes}${s.isSeed ? " · 種子" : ""}` }),
+      el("span", {
+        class: "muted",
+        text: t("a.countsSeed", { a: s.agrees, d: s.disagrees, p: s.passes, seed: s.isSeed ? t("a.seedMark") : "" }),
+      }),
     ];
     const row = el("div", { class: "statement-row" }, [
       el("div", { class: "text" }, [s.text, el("div", {}, nodes)]),
     ]);
     if (s.status === "approved") {
-      const rejectButton = el("button", { text: "下架" });
+      const rejectButton = el("button", { text: t("a.unpublish") });
       rejectButton.addEventListener("click", () => moderate(s.sid, "reject"));
       row.append(el("div", { class: "actions" }, [rejectButton]));
     } else if (s.status === "rejected") {
-      const approveButton = el("button", { text: "重新上架" });
+      const approveButton = el("button", { text: t("a.republish") });
       approveButton.addEventListener("click", () => moderate(s.sid, "approve"));
       row.append(el("div", { class: "actions" }, [approveButton]));
     }
@@ -113,7 +124,7 @@ async function moderate(sid, action) {
     });
     await refresh();
   } catch (error) {
-    fail(`操作失敗：${error.message}`);
+    fail(t("a.actionFail", { msg: error.message }));
   }
 }
 
@@ -130,11 +141,11 @@ async function saveSettings() {
         openData: document.getElementById("setting-openData").checked,
       },
     });
-    message.textContent = "已儲存。";
+    message.textContent = t("a.saved");
     show(message, true);
     setTimeout(() => show(message, false), 1500);
   } catch (error) {
-    message.textContent = `儲存失敗：${error.message}`;
+    message.textContent = t("a.saveFail", { msg: error.message });
     show(message, true);
   }
 }
@@ -156,7 +167,7 @@ document.getElementById("seed-add").addEventListener("click", async () => {
     textarea.value = "";
     await refresh();
   } catch (error) {
-    fail(`新增失敗：${error.message}`);
+    fail(t("a.seedFail", { msg: error.message }));
   }
 });
 
@@ -168,7 +179,7 @@ panel.addEventListener("click", (event) => {
 
 document.getElementById("token-save").addEventListener("click", async () => {
   const candidate = extractToken(document.getElementById("token-input").value);
-  if (!candidate) return fail("看不出金鑰格式（應為 32 碼十六進位）。");
+  if (!candidate) return fail(t("a.badToken"));
   token = candidate;
   try {
     sessionStorage.setItem(storageKey, token);
@@ -188,12 +199,12 @@ async function start() {
     show(panel, false);
     show(tokenSection, true);
     if (error.message !== "unauthorized") fail(error.message);
-    else fail("金鑰無效或已失效。");
+    else fail(t("a.invalidToken"));
   }
 }
 
 (async () => {
-  if (!convId) return fail("網址不正確。");
+  if (!convId) return fail(t("app.badUrl"));
   token = loadToken();
   if (!token) {
     show(tokenSection, true);

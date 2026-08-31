@@ -6,6 +6,8 @@
 
 線上展示：**<https://polis.mashbean.net>** · Demo 案例：[【模擬】國防軍購特別預算公投](https://polis.mashbean.net/r/3ovoxq5c6o)（113 位虛構立委的模擬樣本，見 [docs/demo-legislature-sim.md](docs/demo-legislature-sim.md)）
 
+English: [README.en.md](README.en.md) · 給審議工作者的白話說明與實務指南：<https://polis.mashbean.net/guide> · 「這真的不用伺服器嗎？」：[docs/is-this-serverless.md](docs/is-this-serverless.md)
+
 [Polis](https://pol.is)（[compdemocracy/polis](https://github.com/compdemocracy/polis)）是大規模意見調查工具：參與者對彼此提出的陳述投「同意／不同意／略過」，系統即時把投票矩陣降維、分群，找出意見群、各群代表性陳述與跨群共識。官方實作需要 Node API、Clojure math worker 與 PostgreSQL——這個 repo 的研究問題是：**能不能把「完整的一輪」壓進 serverless 原語裡？**（研究脈絡見 [docs/research.md](docs/research.md)）
 
 答案是可以。本 repo 是一個可部署的完整實作：

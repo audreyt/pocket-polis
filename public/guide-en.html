@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Facilitator guide — polis-serverless</title>
+  <meta name="description" content="A practical guide for facilitators and hosts: when to use an opinion map, how to write seed statements, how many people you need, how to run the room, how to wrap up.">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<main>
+  <nav class="site-nav">
+    <a class="wordmark" href="/en">polis-serverless</a>
+    <a href="/en#create">Start a conversation</a>
+    <a href="/r/3ovoxq5c6o?lang=en">Demo</a>
+    <a class="lang" href="/guide">中文</a>
+  </nav>
+
+  <h1>Facilitator guide</h1>
+  <p class="tagline">For deliberation practitioners, community hosts, and teachers: how to run a good "opinion map" conversation. No technical background needed.</p>
+
+  <h2>When it fits</h2>
+  <div class="card">
+    <p><strong>Good fit:</strong></p>
+    <ul>
+      <li>The question is open — "where should we go" rather than "A or B".</li>
+      <li>You want the <strong>distribution</strong> of views: how many camps, what each cares about, where the common ground is.</li>
+      <li>Participants share basic trust (communities, classes, neighborhoods, internal teams, workshops).</li>
+      <li>Pre-meeting input: lay out the disagreements before the meeting so the meeting goes straight to them.</li>
+    </ul>
+    <p><strong>Poor fit:</strong></p>
+    <ul>
+      <li>Settings that need named speech or formal votes (everything here is anonymous).</li>
+      <li>Adversarial public controversies with ballot-stuffing incentives (use official pol.is or identity-verified tools).</li>
+      <li>Groups of two or three (just talk; clustering starts at 4 participants).</li>
+    </ul>
+  </div>
+
+  <h2>Preparing: topic and seed statements</h2>
+  <div class="card">
+    <p>Frame the <strong>topic</strong> as an open question, e.g. "What should our neighborhood invest in over the next two years?" Avoid yes/no questions.</p>
+    <p><strong>Seed statements</strong> are the 8–15 sentences that exist when the conversation opens, so early participants have something to vote on. Guidelines:</p>
+    <ul>
+      <li><strong>One idea per statement</strong> — "add bike lanes and improve streetlights" should be two statements.</li>
+      <li><strong>Agreeable or disagreeable</strong> — write positions, not questions or facts.</li>
+      <li><strong>Cover the spectrum</strong> — deliberately include views you disagree with but that exist in your community; the map should show the whole landscape.</li>
+      <li><strong>Include a few likely-consensus statements</strong> — consensus needs to be made visible too; these will surface in the common-ground list.</li>
+      <li>Plain, concrete, under 280 characters. "Improve communication" is too vague; "Major decisions should be announced a week in advance" is votable.</li>
+    </ul>
+  </div>
+
+  <h2>Choosing the settings</h2>
+  <div class="card">
+    <ul>
+      <li><strong>New statements publish immediately</strong>: keep it on inside a trusted circle — it keeps the conversation alive. Turn it off for public links or sensitive topics and approve each statement yourself (works fine from a phone).</li>
+      <li><strong>Participants can add statements</strong>: this is the soul of the Polis method — keep it on unless you are purely testing fixed options.</li>
+      <li><strong>Public data export</strong>: recommended for academic and civic-tech settings so anyone can verify your conclusions; usually off for internal discussions.</li>
+    </ul>
+  </div>
+
+  <h2>Numbers and timing</h2>
+  <div class="card">
+    <ul>
+      <li><strong>From 4 participants</strong> clustering begins (each must vote past the threshold: all statements when there are fewer than 7, otherwise 7).</li>
+      <li><strong>Above ~20</strong> the map stabilizes; <strong>above ~50</strong> the representative and consensus lists become reliable.</li>
+      <li>Live workshops: <strong>10–20 minutes of voting</strong> (20–40 statements). Async online: run 3–7 days with one mid-way reminder.</li>
+      <li>The system is designed for hundreds to low thousands of participants and hundreds of statements.</li>
+    </ul>
+  </div>
+
+  <h2>Running the room (workshop flow)</h2>
+  <div class="card">
+    <ol class="steps">
+      <li><strong>3-minute opening</strong>: explain anonymity (script below), demo one vote, stress that "Pass" is a legitimate choice.</li>
+      <li><strong>10–20 minutes of voting</strong>: project the participation link as a QR code (any QR generator works). Encourage people to <strong>add their own statements</strong> after voting — new statements get shown to others first.</li>
+      <li><strong>Keep the host page open</strong>: approve new statements (if moderation is on) and unpublish obvious duplicates.</li>
+      <li><strong>Read the map together, 10 minutes</strong>: project the results page. <strong>Common ground first</strong> ("look what we all agree on"), then each group's distinctive statements ("here is where we actually differ"). Don't rush to debate; let the structure sink in.</li>
+      <li><strong>Bridge to next steps</strong>: turn consensus statements into an action list; turn the deepest divides into the agenda for the next (deliberative) session.</li>
+    </ol>
+  </div>
+
+  <h2>Explaining privacy to participants (ready-made script)</h2>
+  <div class="card">
+    <p>"This tool is anonymous: no registration, no name or email. The system keeps one random code in your browser so the same person isn't counted twice. Your votes become statistics only; each dot on the map shows that someone is there, not who they are. Statements you submit are shown publicly but never attributed."</p>
+  </div>
+
+  <h2 id="how-it-works">How the map is computed (plain version)</h2>
+  <div class="card">
+    <p>Imagine laying out each person's full voting record in a row. The more similarly two people voted, the closer they are placed; flattened into a two-dimensional map, people who voted alike sit together, and the system circles the clusters into groups (it tries 2 to 5 groups and keeps the cleanest split).</p>
+    <p>A group's "distinctive statements" are the ones where that group's voting differs <strong>most</strong> from everyone else — with a statistical test guarding against flukes. "Common ground" is the statements <strong>every group</strong> leans toward agreeing with; if even one group doesn't, it stays off the list.</p>
+    <p class="muted">The method is reimplemented from the published Polis literature and validated against official open conversation data (our clustering closely matches the official runs). For the math: <a href="https://github.com/mashbean/polis-serverless/blob/main/docs/algorithm.md">algorithm notes</a>, <a href="https://github.com/mashbean/polis-serverless/blob/main/docs/validation-opendata.md">validation report</a>.</p>
+  </div>
+
+  <h2>Wrapping up</h2>
+  <div class="card">
+    <ul>
+      <li>Close voting from the host page when done (the results stay viewable) and download both CSVs for the record.</li>
+      <li>Summary order: participation numbers → consensus list → the groups and their distinctive views → next steps. Lead with consensus — it is this method's most valuable output.</li>
+      <li>Turn consensus statements into proposals or action items; carry the deepest divides into the next deliberative session.</li>
+    </ul>
+  </div>
+
+  <h2>Honest limitations</h2>
+  <div class="card">
+    <ul>
+      <li>The anonymous code lives in the browser: a new device means a new identity. It prevents accidents, not determined ballot-stuffing.</li>
+      <li>The map shows the structure of voting behavior — it is not a representative poll; participants are not the population.</li>
+      <li>Groups are an algorithmic summary, not labels. Read the map as "how this group voted", never "who these people are".</li>
+    </ul>
+  </div>
+
+  <div class="actions mt-lg">
+    <a class="button primary" href="/en#create">Start a conversation</a>
+    <a class="button" href="/r/3ovoxq5c6o?lang=en">See the demo results</a>
+  </div>
+</main>
+<footer>
+  <p><a href="/en">Home</a> · <a href="https://github.com/mashbean/polis-serverless">Source</a> · <a href="/guide">中文</a></p>
+</footer>
+</body>
+</html>

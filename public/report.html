@@ -9,37 +9,40 @@
 </head>
 <body>
 <main>
-  <h1 id="conv-title">載入中⋯</h1>
+  <div class="page-top">
+    <h1 id="conv-title" data-i18n="app.loading">載入中⋯</h1>
+    <span class="lang-switch" id="lang-switch"></span>
+  </div>
   <p id="conv-description" class="muted"></p>
   <p id="load-error" class="error hidden"></p>
 
   <div class="stats-row" id="stats-row"></div>
 
-  <h2>意見地圖</h2>
-  <p class="muted">每個點是一位參與者，位置由投票模式決定（PCA 前兩軸）；顏色是 k-means 分出的意見群。投票數不足（未達門檻）的參與者暫不顯示。</p>
+  <h2 data-i18n="r.mapTitle">意見地圖</h2>
+  <p class="muted" data-i18n="r.mapHint">每個點是一位參與者：投票越相似的人靠得越近，顏色代表想法相近的群。投票數還不夠的參與者暫時不會出現。</p>
   <div id="map-container"></div>
   <div class="legend" id="legend"></div>
-  <p class="muted" id="you-note" style="display:none">★ 是你的位置。</p>
+  <p class="muted hidden" id="you-note" data-i18n="r.youNote">★ 是你的位置。</p>
 
-  <h2>跨群共識</h2>
-  <p class="muted">每一個意見群都傾向同一邊的陳述——分歧地圖上仍然共享的立場。</p>
-  <div class="card" id="consensus-container"><p class="muted">還沒有足夠的投票。</p></div>
+  <h2 data-i18n="r.consensusTitle">跨群共識</h2>
+  <p class="muted" data-i18n="r.consensusHint">每一群都傾向同一邊的意見——立場不同的人仍然共享的看法。</p>
+  <div class="card" id="consensus-container"></div>
 
-  <h2>各群的代表性陳述</h2>
-  <p class="muted">讓這個群「有別於其他群」的陳述（比例檢定 90% 顯著）。</p>
-  <div id="groups-container"><p class="muted card">參與者達 4 人以上才會分群。</p></div>
+  <h2 data-i18n="r.groupsTitle">各群最有代表性的意見</h2>
+  <p class="muted" data-i18n="r.groupsHint">這些意見最能區分這個群和其他群（差異經過統計檢定確認）。</p>
+  <div id="groups-container"></div>
 
-  <h2>全部陳述</h2>
+  <h2 data-i18n="r.allTitle">全部意見</h2>
   <div class="card" id="statements-container"></div>
 
   <div class="actions">
-    <a id="participate-link" class="button primary" href="#">去投票</a>
-    <button type="button" id="refresh">重新整理結果</button>
+    <a id="participate-link" class="button primary" href="#" data-i18n="r.participate">去投票</a>
+    <button type="button" id="refresh" data-i18n="r.refresh">重新整理結果</button>
   </div>
   <p class="muted" id="computed-at"></p>
 </main>
 <footer>
-  <p><a href="https://github.com/mashbean/polis-serverless">原始碼</a> · 分群與統計依 Polis 公開文獻重新實作（非官方 pol.is）。</p>
+  <p><a href="/guide#how-it-works" id="method-link" data-i18n="r.methodNote">分群方法白話說明</a> · <a href="https://github.com/mashbean/polis-serverless" data-i18n="app.sourceLink">原始碼</a></p>
 </footer>
 <script type="module" src="/js/report.js"></script>
 </body>

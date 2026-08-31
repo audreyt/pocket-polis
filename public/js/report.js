@@ -1,11 +1,19 @@
 import { api, conversationIdFromPath, el, groupColor, show } from "./common.js";
+import { applyI18n, lang, mountLangSwitch, t } from "./i18n.js";
+
+applyI18n();
+mountLangSwitch(document.getElementById("lang-switch"));
+if (lang === "en") {
+  const methodLink = document.getElementById("method-link");
+  if (methodLink) methodLink.href = "/en/guide#how-it-works";
+}
 
 const convId = conversationIdFromPath();
 const SVG_NS = "http://www.w3.org/2000/svg";
 let statementIndex = new Map();
 
 function fail(message) {
-  document.getElementById("conv-title").textContent = "無法載入結果";
+  document.getElementById("conv-title").textContent = t("r.loadFail");
   const node = document.getElementById("load-error");
   node.textContent = message;
   show(node, true);
@@ -30,10 +38,10 @@ function renderStats(result) {
   const row = document.getElementById("stats-row");
   row.replaceChildren();
   const items = [
-    [result.nParticipantsTotal, "參與者"],
-    [result.nVotes, "票"],
-    [result.nStatements, "陳述"],
-    [result.k > 1 ? result.k : "—", "意見群"],
+    [result.nParticipantsTotal, t("r.participants")],
+    [result.nVotes, t("r.votes")],
+    [result.nStatements, t("r.statements")],
+    [result.k > 1 ? result.k : "—", t("r.groups")],
   ];
   for (const [value, label] of items) {
     row.append(
@@ -49,7 +57,7 @@ function renderMap(result, you) {
   const container = document.getElementById("map-container");
   container.replaceChildren();
   if (result.points.length === 0) {
-    container.append(el("p", { class: "muted card", text: "投票數達門檻的參與者出現後，這裡會長出意見地圖。" }));
+    container.append(el("p", { class: "muted card", text: t("r.mapEmpty") }));
     return;
   }
   const W = 720;
@@ -68,7 +76,7 @@ function renderMap(result, you) {
   const sy = (y) => (spanY > 0 ? H - pad - ((y - minY) / spanY) * (H - 2 * pad) : H / 2);
 
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "map-svg", role: "img" });
-  svg.append(el("title", { text: "意見地圖" }));
+  svg.append(el("title", { text: t("r.mapTitle") }));
 
   for (const p of result.points) {
     svg.append(
@@ -107,7 +115,7 @@ function renderMap(result, you) {
     });
     star.textContent = "★";
     svg.append(star);
-    document.getElementById("you-note").style.display = "block";
+    show(document.getElementById("you-note"), true);
   }
   container.append(svg);
 
@@ -117,7 +125,7 @@ function renderMap(result, you) {
     if (result.k < 2) continue;
     const dot = el("span", { class: "dot" });
     dot.style.background = groupColor(g.id);
-    legend.append(el("span", {}, [dot, `群 ${g.label} · ${g.size} 人`]));
+    legend.append(el("span", {}, [dot, t("r.groupLabel", { label: g.label, size: g.size })]));
   }
 }
 
@@ -137,11 +145,11 @@ function renderConsensus(result) {
   const container = document.getElementById("consensus-container");
   container.replaceChildren();
   const entries = [
-    ...result.consensus.agree.map((c) => ({ ...c, tag: "多數同意", cls: "agree" })),
-    ...result.consensus.disagree.map((c) => ({ ...c, tag: "多數不同意", cls: "disagree" })),
+    ...result.consensus.agree.map((c) => ({ ...c, tag: t("r.mostlyAgree"), cls: "agree" })),
+    ...result.consensus.disagree.map((c) => ({ ...c, tag: t("r.mostlyDisagree"), cls: "disagree" })),
   ];
   if (entries.length === 0) {
-    container.append(el("p", { class: "muted", text: "還沒有跨群共識的陳述（或投票數不足）。" }));
+    container.append(el("p", { class: "muted", text: t("r.consensusEmpty") }));
     return;
   }
   for (const c of entries) {
@@ -154,23 +162,26 @@ function renderConsensus(result) {
 
 function renderGroups(result) {
   const container = document.getElementById("groups-container");
-  if (result.k < 2) return;
   container.replaceChildren();
+  if (result.k < 2) {
+    container.append(el("p", { class: "muted card", text: t("r.groupsEmpty") }));
+    return;
+  }
   for (const g of result.groups) {
     const card = el("div", { class: "card" });
-    const heading = el("h2", { text: `群 ${g.label} · ${g.size} 人` });
+    const heading = el("h2", { text: t("r.groupLabel", { label: g.label, size: g.size }) });
     heading.style.marginTop = "0";
     heading.style.color = groupColor(g.id);
     card.append(heading);
     if (g.representative.length === 0) {
-      card.append(el("p", { class: "muted", text: "還沒有顯著的代表性陳述。" }));
+      card.append(el("p", { class: "muted", text: t("r.groupNone") }));
     }
     for (const r of g.representative) {
-      const dirText = r.direction === "agree" ? "同意" : "不同意";
+      const dirText = r.direction === "agree" ? t("r.agreeWord") : t("r.disagreeWord");
       const line = statementLine(r.sid, [
         el("span", {
           class: `tag ${r.direction}`,
-          text: `${percent(r.prob)} ${dirText}（其他群的 ${r.repness.toFixed(1)} 倍）`,
+          text: t("r.repLine", { p: Math.round(r.prob * 100), dir: dirText, x: r.repness.toFixed(1) }),
         }),
       ]);
       if (line) card.append(line);
@@ -184,7 +195,7 @@ function renderStatements(result) {
   container.replaceChildren();
   const stats = [...result.statementStats].sort((a, b) => b.agrees - a.agrees);
   if (stats.length === 0) {
-    container.append(el("p", { class: "muted", text: "還沒有陳述。" }));
+    container.append(el("p", { class: "muted", text: t("r.allEmpty") }));
     return;
   }
   for (const s of stats) {
@@ -205,7 +216,7 @@ function renderStatements(result) {
         el("div", { class: "text" }, [
           stat ? stat.text : `#${s.sid}`,
           bar,
-          el("div", { class: "muted", text: `同意 ${s.agrees} · 不同意 ${s.disagrees} · 略過 ${s.passes}` }),
+          el("div", { class: "muted", text: t("r.counts", { a: s.agrees, d: s.disagrees, p: s.passes }) }),
         ]),
       ]),
     );
@@ -221,7 +232,7 @@ async function refresh() {
   const info = await api(`/api/conversations/${convId}`);
   document.getElementById("conv-title").textContent = info.title;
   document.getElementById("conv-description").textContent = info.description;
-  document.title = `${info.title} · 結果 — polis-serverless`;
+  document.title = `${info.title} · ${t("r.title")} — polis-serverless`;
   document.getElementById("participate-link").href = `/c/${convId}`;
 
   await loadStatementTexts();
@@ -233,13 +244,17 @@ async function refresh() {
   renderConsensus(result);
   renderGroups(result);
   renderStatements(result);
-  document.getElementById("computed-at").textContent = `計算時間：${new Date(result.computedAt).toLocaleString("zh-TW")}（納入分群 ${result.nParticipantsClustered} 人，門檻 ${result.inclusionThreshold} 票）`;
+  document.getElementById("computed-at").textContent = t("r.computedAt", {
+    time: new Date(result.computedAt).toLocaleString(lang === "en" ? "en-US" : "zh-TW"),
+    n: result.nParticipantsClustered,
+    m: result.inclusionThreshold,
+  });
 }
 
 document.getElementById("refresh").addEventListener("click", () => refresh().catch((e) => fail(e.message)));
 
 (async () => {
-  if (!convId) return fail("網址不正確。");
+  if (!convId) return fail(t("app.badUrl"));
   try {
     await refresh();
     setInterval(() => refresh().catch(() => {}), 30000);

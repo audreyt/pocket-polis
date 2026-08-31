@@ -54,15 +54,16 @@ export function show(node, visible) {
 }
 
 export async function copyText(text, button) {
+  const isEn = document.documentElement.lang === "en";
   try {
     await navigator.clipboard.writeText(text);
     const original = button.textContent;
-    button.textContent = "已複製";
+    button.textContent = isEn ? "Copied" : "已複製";
     setTimeout(() => {
       button.textContent = original;
     }, 1200);
   } catch {
-    prompt("請手動複製：", text);
+    prompt(isEn ? "Copy manually:" : "請手動複製：", text);
   }
 }
 
