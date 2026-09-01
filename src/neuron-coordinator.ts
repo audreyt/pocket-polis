@@ -26,6 +26,8 @@ export function parseDailyNeuronState(raw: unknown): DailyNeuronState | "absent"
   if (typeof value !== "object" || value === null || Array.isArray(value)) return "malformed";
   const rec = value as Record<string, unknown>;
   if (typeof rec.utcDay !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(rec.utcDay)) return "malformed";
+  const dayMs = Date.parse(`${rec.utcDay}T00:00:00.000Z`);
+  if (!Number.isFinite(dayMs) || utcDayKey(dayMs) !== rec.utcDay) return "malformed";
   if (typeof rec.reserved !== "number" || !Number.isFinite(rec.reserved) || rec.reserved < 0) {
     return "malformed";
   }
