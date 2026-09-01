@@ -869,9 +869,10 @@ export class Conversation extends DurableObject<Env> {
     };
     this.setMeta("settings", JSON.stringify(next));
     this.setMeta("synthesis_failure", "");
+    this.setMeta("synthesis_data", "");
+    this.setMeta("synthesis_pending", "");
     return { ok: true, settings: next };
   }
-
   // ---- data export ----
 
   private async canExport(token: string | null): Promise<boolean> {
