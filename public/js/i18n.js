@@ -57,10 +57,10 @@ const STRINGS = {
     "Each dot is one participant: the more similarly two people voted, the closer they sit, and colors mark groups of like-minded voters. Participants with too few votes yet don't appear.",
   ],
   "r.mapEmpty": ["投票的人夠多之後，這裡會長出意見地圖。", "The map appears once enough people have voted."],
-  "r.youNote": ["★ 是你的位置。", "★ is you."],
+  "r.youNote": ["標著「你」的深色圓點，就是你的位置。", "The dark dot labeled \"You\" is where you are."],
   "r.consensusTitle": ["跨群共識", "Common ground"],
   "r.consensusHint": [
-    "每一群都傾向同一邊的意見——立場不同的人仍然共享的看法。",
+    "每一群都傾向同一邊的意見，也就是立場不同的人仍然共享的看法。",
     "Statements every group leans the same way on — what people share despite their differences.",
   ],
   "r.consensusEmpty": ["還沒有跨群共識的意見（或投票數還不夠）。", "No common ground yet (or not enough votes)."],
@@ -91,7 +91,7 @@ const STRINGS = {
     "最後更新：{time}（已有 {n} 人投滿 {m} 句、進入地圖）",
     "Last updated {time} ({n} participants with {m}+ votes are on the map)",
   ],
-  "r.methodNote": ["分群方法白話說明", "How the clustering works"],
+  "r.methodNote": ["分群方法說明", "How the clustering works"],
 
   // 管理頁
   "a.title": ["管理頁", "Host controls"],

@@ -34,6 +34,14 @@ export default {
       return handleConversationApi(request, url, stub, subPath);
     } catch (error) {
       console.error("unhandled", error instanceof Error ? error.stack : error);
+      // 免費額度觸頂（每日 00:00 UTC 重置）：給人話，不要 internal error
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("Exceeded allowed") && message.includes("free tier")) {
+        return jsonError(
+          "這個站今天的免費額度用完了，台北時間早上 8 點會自動恢復。The site hit today's free-tier quota; it resets at 00:00 UTC.",
+          503,
+        );
+      }
       return jsonError("internal error", 500);
     }
   },

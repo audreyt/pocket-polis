@@ -126,27 +126,31 @@ function renderMap(result, you) {
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "map-svg", role: "img" });
   svg.append(el("title", { text: t("r.mapTitle") }));
 
+  // 高斯模糊濾鏡：把群體輪廓暈成柔軟的色雲
+  const defs = svgEl("defs", {});
+  const blur = svgEl("filter", { id: "hull-blur", x: "-30%", y: "-30%", width: "160%", height: "160%" });
+  blur.append(svgEl("feGaussianBlur", { stdDeviation: 12 }));
+  defs.append(blur);
+  svg.append(defs);
+
   // 淡淡的十字座標軸，給地圖一點空間感
-  const axisColor = "color-mix(in srgb, currentColor 10%, transparent)";
+  const axisColor = "color-mix(in srgb, currentColor 8%, transparent)";
   svg.append(svgEl("line", { x1: W / 2, y1: 16, x2: W / 2, y2: H - 16, stroke: axisColor, "stroke-width": 1 }));
   svg.append(svgEl("line", { x1: 16, y1: H / 2, x2: W - 16, y2: H / 2, stroke: axisColor, "stroke-width": 1 }));
 
   const screenPoints = result.points.map((p) => ({ x: sx(p.x), y: sy(p.y), group: p.group }));
 
-  // 群體輪廓（柔軟色暈）
+  // 群體色雲（模糊的凸包，無框線）
   if (result.k >= 2) {
     for (const g of result.groups) {
       const members = screenPoints.filter((p) => p.group === g.id);
       if (members.length < 2) continue;
       svg.append(
         svgEl("path", {
-          d: hullPath(members, 22),
+          d: hullPath(members, 26),
           fill: groupColor(g.id),
-          "fill-opacity": 0.08,
-          stroke: groupColor(g.id),
-          "stroke-opacity": 0.35,
-          "stroke-width": 1.2,
-          "stroke-dasharray": "5 5",
+          "fill-opacity": 0.13,
+          filter: "url(#hull-blur)",
         }),
       );
     }
@@ -186,9 +190,8 @@ function renderMap(result, you) {
           width: chipW,
           height: 26,
           rx: 13,
-          fill: "var(--surface)",
-          stroke: groupColor(g.id),
-          "stroke-width": 1.4,
+          fill: groupColor(g.id),
+          "fill-opacity": 0.12,
         }),
       );
       const text = svgEl("text", {
@@ -205,7 +208,7 @@ function renderMap(result, you) {
     }
   }
 
-  // 你的位置
+  // 你的位置：深色圓點 + 光暈 + 標籤
   if (you) {
     const yx = sx(you.x);
     const yy = sy(you.y);
@@ -213,31 +216,46 @@ function renderMap(result, you) {
       svgEl("circle", {
         cx: yx,
         cy: yy,
-        r: 10,
+        r: 11,
         fill: "none",
         stroke: "currentColor",
+        "stroke-opacity": 0.3,
         "stroke-width": 1.6,
       }),
     );
-    const star = svgEl("text", {
+    svg.append(
+      svgEl("circle", {
+        cx: yx,
+        cy: yy,
+        r: 6,
+        fill: "currentColor",
+        stroke: "var(--surface)",
+        "stroke-width": 2,
+      }),
+    );
+    const label = t("r.you");
+    const pillW = label.length * 9 + 18;
+    const pillY = Math.max(yy - 38, 6);
+    svg.append(
+      svgEl("rect", {
+        x: yx - pillW / 2,
+        y: pillY,
+        width: pillW,
+        height: 21,
+        rx: 10.5,
+        fill: "currentColor",
+      }),
+    );
+    const pillText = svgEl("text", {
       x: yx,
-      y: yy + 4.5,
+      y: pillY + 14.5,
       "text-anchor": "middle",
-      "font-size": 13,
-      fill: "currentColor",
-    });
-    star.textContent = "★";
-    svg.append(star);
-    const youLabel = svgEl("text", {
-      x: yx,
-      y: yy - 16,
-      "text-anchor": "middle",
-      "font-size": 12,
+      "font-size": 11.5,
       "font-weight": 700,
-      fill: "currentColor",
+      fill: "var(--surface)",
     });
-    youLabel.textContent = `★ ${t("r.you")}`;
-    svg.append(youLabel);
+    pillText.textContent = label;
+    svg.append(pillText);
     show(document.getElementById("you-note"), true);
   }
   container.append(svg);

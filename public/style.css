@@ -679,6 +679,11 @@ code {
   align-items: baseline;
 }
 
+.steps li > div {
+  flex: 1;
+  min-width: 0;
+}
+
 .steps li::before {
   content: counter(step);
   flex-shrink: 0;
