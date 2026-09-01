@@ -58,6 +58,7 @@ async function refresh() {
   document.getElementById("setting-autoApprove").checked = settings.autoApprove;
   document.getElementById("setting-allowSubmissions").checked = settings.allowSubmissions;
   document.getElementById("setting-openData").checked = settings.openData;
+  document.getElementById("setting-altUrl").value = settings.altUrl ?? "";
 
   const pending = statements.filter((s) => s.status === "pending");
   const pendingContainer = document.getElementById("pending-container");
@@ -140,6 +141,7 @@ async function saveSettings() {
         autoApprove: document.getElementById("setting-autoApprove").checked,
         allowSubmissions: document.getElementById("setting-allowSubmissions").checked,
         openData: document.getElementById("setting-openData").checked,
+        altUrl: document.getElementById("setting-altUrl").value,
       },
     });
     message.textContent = t("a.saved");
@@ -154,6 +156,7 @@ async function saveSettings() {
 for (const id of ["setting-status", "setting-autoApprove", "setting-allowSubmissions", "setting-openData"]) {
   document.getElementById(id).addEventListener("change", saveSettings);
 }
+document.getElementById("setting-altUrl").addEventListener("change", saveSettings);
 
 document.getElementById("seed-add").addEventListener("click", async () => {
   const textarea = document.getElementById("seed-text");

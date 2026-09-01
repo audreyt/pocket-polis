@@ -388,6 +388,10 @@ async function refresh() {
     document.getElementById("conv-description").textContent = info.description;
     document.title = `${info.title} · ${t("r.title")} — Pocket Polis`;
     document.getElementById("participate-link").href = `/c/${convId}`;
+    if (info.altUrl) {
+      document.getElementById("alt-link").href = info.altUrl;
+      show(document.getElementById("alt-banner"), true);
+    }
     infoLoaded = true;
   }
 

@@ -9,6 +9,8 @@ export interface ConversationSettings {
   allowSubmissions: boolean;
   openData: boolean;
   status: "open" | "closed";
+  /** 另一語言版本的連結（選填；顯示在參與與結果頁的切換橫幅） */
+  altUrl?: string;
 }
 
 export interface PublicInfo {
@@ -19,6 +21,7 @@ export interface PublicInfo {
   allowSubmissions: boolean;
   autoApprove: boolean;
   openData: boolean;
+  altUrl: string;
   counts: { statements: number; participants: number; votes: number };
   createdAt: number;
 }
@@ -227,6 +230,7 @@ export class Conversation extends DurableObject<Env> {
       allowSubmissions: settings.allowSubmissions,
       autoApprove: settings.autoApprove,
       openData: settings.openData,
+      altUrl: settings.altUrl ?? "",
       counts: {
         statements: Number(counts.n),
         participants: Number(this.getMeta("participantCount") ?? "0"),
@@ -555,6 +559,7 @@ export class Conversation extends DurableObject<Env> {
         typeof patch.allowSubmissions === "boolean" ? patch.allowSubmissions : current.allowSubmissions,
       openData: typeof patch.openData === "boolean" ? patch.openData : current.openData,
       status: patch.status === "open" || patch.status === "closed" ? patch.status : current.status,
+      altUrl: typeof patch.altUrl === "string" ? sanitizeAltUrl(patch.altUrl) : current.altUrl,
     };
     this.setMeta("settings", JSON.stringify(next));
     return { ok: true, settings: next };
@@ -612,6 +617,13 @@ export class Conversation extends DurableObject<Env> {
     this.sql().exec(`INSERT INTO creation_log (ts) VALUES (?)`, now);
     return { ok: true };
   }
+}
+
+/** 只接受 https:// 或站內相對路徑，其餘視為清空 */
+function sanitizeAltUrl(raw: string): string {
+  const trimmed = raw.trim().slice(0, 300);
+  if (/^https:\/\/\S+$/.test(trimmed) || /^\/\S*$/.test(trimmed)) return trimmed;
+  return "";
 }
 
 function csvEscape(text: string): string {

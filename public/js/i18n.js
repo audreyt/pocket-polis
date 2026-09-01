@@ -8,6 +8,7 @@ const STRINGS = {
   "app.sourceLink": ["原始碼", "Source"],
   "app.badUrl": ["網址不正確。", "This link is not valid."],
   "nav.zhName": ["口袋審議", ""],
+  "app.altBanner": ["這場討論有另一個語言版本，點此前往", "This conversation is also available in another language. Open it"],
 
   // 參與頁
   "p.title": ["參與討論", "Join the conversation"],
@@ -115,6 +116,10 @@ const STRINGS = {
   "a.settingOpen": ["開放投票中（取消勾選即結束討論）", "Voting open (untick to close the conversation)"],
   "a.settingAutoApprove": ["新意見直接公開（否則需你核准）", "New statements publish immediately (otherwise you approve each one)"],
   "a.settingAllowSubmissions": ["開放參與者提出意見", "Participants can add statements"],
+  "a.settingAltUrl": [
+    "另一語言版本的連結（選填，會顯示在參與與結果頁）",
+    "Link to another-language version (optional; shown on the participate and results pages)",
+  ],
   "a.settingOpenData": ["公開資料下載（任何人可下載匿名化 CSV）", "Public data export (anyone can download the anonymized CSV)"],
   "a.saved": ["已儲存。", "Saved."],
   "a.saveFail": ["儲存失敗：{msg}", "Couldn't save: {msg}"],

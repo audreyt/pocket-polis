@@ -32,6 +32,10 @@ async function loadInfo() {
   titleNode.textContent = info.title;
   descNode.textContent = info.description;
   document.title = `${info.title} — Pocket Polis`;
+  if (info.altUrl) {
+    document.getElementById("alt-link").href = info.altUrl;
+    show(document.getElementById("alt-banner"), true);
+  }
   const reportUrl = `/r/${convId}`;
   document.getElementById("report-link").href = reportUrl;
   document.getElementById("footer-report").href = reportUrl;
