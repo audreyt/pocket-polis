@@ -325,6 +325,20 @@ function isPendingOrRefreshing(res) {
   return Boolean(res && (res.status === "pending" || res.refreshPending === true));
 }
 
+/**
+ * 套用新的綜整結果：先把主題篩選對齊新主題集（主題若已不存在就清除），
+ * 再渲染綜整區與陳述列表，讓主題卡片與篩選後的列表永遠出自同一份綜整。
+ */
+function applySynthesis(res, mathResult) {
+  currentSynthesis = res;
+  const themes = res && Array.isArray(res.themes) ? res.themes : null;
+  if (activeThemeFilter !== null && !(themes && themes.some((th) => th.id === activeThemeFilter))) {
+    activeThemeFilter = null;
+  }
+  renderAiOverview(res, mathResult);
+  renderStatements(mathResult);
+}
+
 function schedulePendingPoll() {
   if (pendingPollTimer) return;
   pendingPollTimer = setTimeout(async () => {
@@ -333,8 +347,7 @@ function schedulePendingPoll() {
     try {
       const res = await api(`/api/conversations/${convId}/synthesis?lang=${lang}`);
       if (res) {
-        currentSynthesis = res;
-        renderAiOverview(res, currentMathResult);
+        applySynthesis(res, currentMathResult);
         if (isPendingOrRefreshing(res)) {
           pollIntervalMs = Math.min(15000, Math.round(pollIntervalMs * 1.5));
           schedulePendingPoll();
@@ -830,7 +843,9 @@ function renderGroups(result) {
     heading.style.marginTop = "0";
     heading.style.color = groupColor(g.id);
     card.append(heading);
-    if (g.representative.length === 0) {
+    if (g.statsRedacted) {
+      card.append(el("p", { class: "muted", text: t("r.groupTooSmall") }));
+    } else if (g.representative.length === 0) {
       card.append(el("p", { class: "muted", text: t("r.groupNone") }));
     }
     for (const r of g.representative) {
@@ -971,13 +986,12 @@ async function refresh(options = {}) {
   renderMap(result, you);
   renderConsensus(result);
   renderGroups(result);
-  renderStatements(result);
 
+  // applySynthesis 會在對齊主題篩選後渲染陳述列表；不在此先渲染，避免列表用舊綜整、卡片用新綜整
   if (synthesisRes.status === "fulfilled" && synthesisRes.value) {
-    currentSynthesis = synthesisRes.value;
-    renderAiOverview(currentSynthesis, result);
+    applySynthesis(synthesisRes.value, result);
   } else {
-    renderAiOverview({ status: "unavailable" }, result);
+    applySynthesis({ status: "unavailable" }, result);
   }
 
   document.getElementById("computed-at").textContent = t("r.computedAt", {

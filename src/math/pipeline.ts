@@ -121,14 +121,18 @@ export function computeMath(input: PipelineInput): PipelineOutput {
  */
 export const MIN_GROUP_STATS_SIZE = 3;
 
-/** 公開版 MathResult：移除小於 MIN_GROUP_STATS_SIZE 之群體的逐陳述統計。DO 內部綜整仍用完整版。 */
+/**
+ * 公開版 MathResult：人數低於 MIN_GROUP_STATS_SIZE 的群體只保留 id / label / size / center。
+ * 逐陳述統計與代表性陳述一併移除——representativeStatements() 對每群至少退而取一句，
+ * 單人群的「代表性方向」就是那個人的投票。DO 內部綜整仍用完整版。
+ */
 export function redactSmallGroupStats(result: MathResult): MathResult {
   return {
     ...result,
     groups: result.groups.map((g) => {
       if (g.size >= MIN_GROUP_STATS_SIZE) return g;
       const { statementStats: _omit, ...rest } = g;
-      return rest;
+      return { ...rest, representative: [], statsRedacted: true };
     }),
   };
 }

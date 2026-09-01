@@ -220,9 +220,14 @@ describe("redactSmallGroupStats（k-匿名）", () => {
         { id: 1, label: "B", size: 1, center: [0, 0], representative: [], statementStats: [stat] },
       ],
     };
+    result.groups[1].representative = [{ sid: 1, direction: "agree", prob: 0.67, probTest: 0.5, repness: 2, repnessTest: 0.5, metric: 1, nSuccess: 1, nSeen: 1 }];
     const redacted = redactSmallGroupStats(result);
     expect(redacted.groups[0]!.statementStats).toEqual([stat]);
+    expect(redacted.groups[0]!.statsRedacted).toBeUndefined();
     expect("statementStats" in redacted.groups[1]!).toBe(false);
+    // 代表性陳述也一併遮蔽（單人群的代表性方向就是那個人的投票），並標記給前端
+    expect(redacted.groups[1]!.representative).toEqual([]);
+    expect(redacted.groups[1]!.statsRedacted).toBe(true);
     expect(redacted.groups[1]!.size).toBe(1);
     expect(redacted.statementStats).toEqual([stat]);
     // 原物件不被修改

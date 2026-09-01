@@ -8,6 +8,7 @@ import {
 } from "./ai-budget";
 import { NEURON_COORDINATOR_INSTANCE } from "./neuron-coordinator";
 import {
+  dropUnreportableGroups,
   generateDeterministicSensemaking,
   generateSensemaking,
   inferSourceLanguage,
@@ -625,6 +626,8 @@ export class Conversation extends DurableObject<Env> {
     if (rawCache) {
       try {
         cached = JSON.parse(rawCache) as SensemakingSynthesis;
+        // 舊快取可能含小群畫像／張力：回傳前依目前分群移除（不重新生成）
+        if (cached && cached.status === "ready") cached = dropUnreportableGroups(cached, math.result);
       } catch {
         cached = null;
       }

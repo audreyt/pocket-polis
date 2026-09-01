@@ -353,6 +353,33 @@ describe("結果頁無障礙、樣式與 CSP 合約", () => {
   });
 });
 
+describe("結果頁主題篩選與綜整一致性", () => {
+  it("輪詢與重新整理都經由 applySynthesis：先對齊主題篩選再渲染陳述列表，卡片與列表不會出自不同綜整", () => {
+    const js = read("public/js/report.js");
+    const fn = js.slice(js.indexOf("function applySynthesis"), js.indexOf("function schedulePendingPoll"));
+    expect(fn).toMatch(/currentSynthesis = res;[\s\S]*activeThemeFilter = null;[\s\S]*renderAiOverview\(res, mathResult\);[\s\S]*renderStatements\(mathResult\);/);
+    // 輪詢路徑
+    const poll = js.slice(js.indexOf("function schedulePendingPoll"), js.indexOf("function setModelBadge"));
+    expect(poll).toContain("applySynthesis(res, currentMathResult)");
+    expect(poll).not.toContain("currentSynthesis = res");
+    // 重新整理路徑：不得在套用新綜整前先用舊綜整渲染列表
+    const refresh = js.slice(js.indexOf("async function refresh("), js.indexOf('document.getElementById("clear-theme-filter")?.addEventListener'));
+    expect(refresh).toContain("applySynthesis(synthesisRes.value, result)");
+    expect(refresh).toContain('applySynthesis({ status: "unavailable" }, result)');
+    expect(refresh).not.toMatch(/renderStatements\(result\)/);
+    expect(refresh).not.toContain("currentSynthesis =");
+  });
+
+  it("小群遮蔽：結果頁依 statsRedacted 顯示匿名保護說明，字串中英俱備", () => {
+    const js = read("public/js/report.js");
+    expect(js).toContain("g.statsRedacted");
+    expect(js).toContain('t("r.groupTooSmall")');
+    expect(STRINGS["r.groupTooSmall"]).toHaveLength(2);
+    expect(STRINGS["r.groupTooSmall"][0].length).toBeGreaterThan(0);
+    expect(STRINGS["r.groupTooSmall"][1].length).toBeGreaterThan(0);
+  });
+});
+
 describe("el() 選填子節點", () => {
   it("null / undefined / false 子節點被略過，不會渲染成字面 \"null\"", () => {
     const makeNode = (tag) => ({

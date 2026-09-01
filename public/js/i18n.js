@@ -114,6 +114,7 @@ export const STRINGS = {
   "r.agreeWord": ["同意", "agree"],
   "r.disagreeWord": ["不同意", "disagree"],
   "r.groupNone": ["還沒有顯著的代表性意見。", "No distinctive statements yet."],
+  "r.groupTooSmall": ["人數過少，為保護匿名不顯示這一群的投票統計與代表性意見。", "Too few people in this group; its vote statistics and distinctive statements are withheld to protect anonymity."],
   "r.allTitle": ["全部意見", "All statements"],
   "r.allHint": ["所有經審核通過的意見陳述及其全體投票分布。", "All approved statements and their overall voting distributions."],
   "r.allEmpty": ["還沒有意見。", "No statements yet."],

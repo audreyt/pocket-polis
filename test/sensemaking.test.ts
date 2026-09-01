@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   computeEvidenceBuckets,
+  distinguishesPair,
+  generateDeterministicSensemaking,
   generateSensemaking,
   inferSourceLanguage,
+  pickDeterministicTensionPair,
+  rankConsensusSids,
   SENSEMAKING_MODEL,
   type SensemakingResponse,
 } from "../src/sensemaking";
-import type { MathResult, VoteRow } from "../src/math/types";
-import { computeMath } from "../src/math/pipeline";
+import type { MathResult, StatementStat, VoteRow } from "../src/math/types";
+import { computeMath, MIN_GROUP_STATS_SIZE } from "../src/math/pipeline";
 
 function createMockMathResult(): { mathResult: MathResult; votes: VoteRow[] } {
   const votes: VoteRow[] = [];
@@ -1012,5 +1016,221 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     expect(res.model).not.toContain("gemma");
     const covered = new Set(res.themes.flatMap((t) => t.statementIds));
     expect([...covered].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+  });
+});
+
+// ---- 可報告群（k-匿名）與張力配對證據 ----
+
+function stat(sid: number, agrees: number, disagrees: number, passes = 0): StatementStat {
+  return { sid, agrees, disagrees, passes, seen: agrees + disagrees + passes };
+}
+
+/** 手工三群結果：群 0 與群 1 對 s1 完全一致（都同意），群 2 不同意；s2 三群皆一致；s3 群 0 與群 1 分歧 */
+function threeGroupMathResult(sizes: [number, number, number] = [10, 10, 10]): MathResult {
+  const mk = (id: number, label: string, size: number, s1: [number, number], s3: [number, number]) => ({
+    id,
+    label,
+    size,
+    center: [id, id] as [number, number],
+    representative: [],
+    statementStats: [stat(1, s1[0], s1[1]), stat(2, size, 0), stat(3, s3[0], s3[1]), stat(4, size, 0)],
+  });
+  const total = sizes[0] + sizes[1] + sizes[2];
+  return {
+    nParticipantsTotal: total,
+    nParticipantsClustered: total,
+    nStatements: 4,
+    nVotes: total * 4,
+    k: 3,
+    inclusionThreshold: 4,
+    computedAt: 1000,
+    points: [],
+    statementStats: [stat(1, sizes[0] + sizes[1], sizes[2]), stat(2, total, 0), stat(3, sizes[0] + sizes[2], sizes[1]), stat(4, total, 0)],
+    consensus: { agree: [], disagree: [] },
+    groups: [
+      mk(0, "A", sizes[0], [sizes[0], 0], [sizes[0], 0]),
+      mk(1, "B", sizes[1], [sizes[1], 0], [0, sizes[1]]),
+      mk(2, "C", sizes[2], [0, sizes[2]], [sizes[2], 0]),
+    ],
+  } as MathResult;
+}
+
+const fourStatements = [
+  { sid: 1, text: "statement one" },
+  { sid: 2, text: "statement two" },
+  { sid: 3, text: "statement three" },
+  { sid: 4, text: "statement four" },
+];
+
+function queuePhases(aiRun: ReturnType<typeof vi.fn>, synthesis: unknown) {
+  aiRun.mockResolvedValueOnce({
+    response: JSON.stringify({
+      topics: [
+        { id: "t1", title: "Topic one", description: "d1" },
+        { id: "t2", title: "Topic two", description: "d2" },
+        { id: "t3", title: "Topic three", description: "d3" },
+      ],
+    }),
+  });
+  aiRun.mockResolvedValueOnce({
+    response: JSON.stringify({
+      assignments: fourStatements.map((s, i) => ({ sid: s.sid, primaryTopicId: `t${(i % 3) + 1}`, secondaryTopicId: null })),
+    }),
+  });
+  aiRun.mockResolvedValueOnce({ response: JSON.stringify(synthesis) });
+}
+
+describe("可報告群：低於 MIN_GROUP_STATS_SIZE 的群不進提示、不被畫像、不可被張力指名", () => {
+  it("單人群的代表性方向不會送進 Workers AI，模型替它產出的畫像與張力一律捨棄", async () => {
+    const mathResult = threeGroupMathResult([10, 10, 1]);
+    // 單人群 C 有一句退而求其次的代表性陳述（就是那個人的投票）
+    mathResult.groups[2]!.representative = [
+      { sid: 1, direction: "disagree", prob: 0.67, probTest: 0.5, repness: 3, repnessTest: 0.5, metric: 1, nSuccess: 1, nSeen: 1 },
+    ];
+    const aiRun = vi.fn();
+    queuePhases(aiRun, {
+      overview: { summary: "S", citedStatementIds: [1] },
+      commonGround: { keyPoints: [] },
+      groupPortraits: [
+        { groupId: 0, title: "A", summary: "a", keyStances: [] },
+        { groupId: 2, title: "Lone voter", summary: "c", keyStances: [{ sid: 1, summary: "x" }] },
+      ],
+      tensions: [
+        { groupAId: 0, groupBId: 2, topic: "A vs C", groupAPerspective: "a", groupBPerspective: "c", tensions: "t", bridgingQuestion: "q", citedStatementIds: [1] },
+        { groupAId: 0, groupBId: 1, topic: "A vs B on s3", groupAPerspective: "a", groupBPerspective: "b", tensions: "t", bridgingQuestion: "q", citedStatementIds: [3] },
+      ],
+    });
+    const res = (await generateSensemaking({
+      ai: { run: aiRun } as unknown as Ai,
+      reserveGlobal: async () => true,
+      lang: "en",
+      title: "Title",
+      description: "Desc",
+      mathResult,
+      statements: fourStatements,
+      mathRevision: 1,
+      now: 1000,
+    })) as SensemakingResponse;
+    expect(res.status).toBe("ready");
+    if (res.status !== "ready") return;
+
+    const synthesisPayload = aiRun.mock.calls[2]![1] as { messages: { content: string }[] };
+    const userPrompt = synthesisPayload.messages[1]!.content;
+    expect(userPrompt).toContain("Group A (ID 0");
+    expect(userPrompt).toContain("Group B (ID 1");
+    expect(userPrompt).not.toContain("Group C");
+    expect(userPrompt).not.toContain("(ID 2");
+    expect(userPrompt).toContain("(2 large enough to report");
+
+    expect(res.groupPortraits.map((p) => p.groupId)).toEqual([0, 1]);
+    expect(res.tensions).toHaveLength(1);
+    expect(res.tensions[0]!.groupAId).toBe(0);
+    expect(res.tensions[0]!.groupBId).toBe(1);
+    expect(res.tensions[0]!.citedStatementIds).toEqual([3]);
+    expect(res.provenance.groupCount).toBe(3);
+  });
+
+  it("確定性 fallback 的畫像只含可報告群", () => {
+    const mathResult = threeGroupMathResult([10, 10, MIN_GROUP_STATS_SIZE - 1]);
+    const det = generateDeterministicSensemaking({
+      lang: "en",
+      title: "T",
+      mathResult,
+      statements: fourStatements,
+      mathRevision: 1,
+      now: 1000,
+    });
+    expect(det.groupPortraits.map((p) => p.groupId)).toEqual([0, 1]);
+    for (const tn of det.tensions) {
+      expect([tn.groupAId, tn.groupBId]).not.toContain(2);
+    }
+  });
+});
+
+describe("共識排序不受無統計小群影響", () => {
+  it("rankConsensusSids 跳過空的群統計，強證據仍排在前面而非退化為 sid 順序", () => {
+    const groupStatsMap = new Map<number, Map<number, StatementStat>>([
+      [0, new Map([[1, stat(1, 12, 8)], [2, stat(2, 15, 5)], [9, stat(9, 20, 0)]])],
+      [1, new Map([[1, stat(1, 11, 9)], [2, stat(2, 16, 4)], [9, stat(9, 20, 0)]])],
+      [2, new Map()], // 小群：無統計
+    ]);
+    const groups = [{ id: 0 }, { id: 1 }, { id: 2 }];
+    expect(rankConsensusSids([1, 2, 9], groupStatsMap, groups)).toEqual([9, 2, 1]);
+  });
+});
+
+describe("張力配對證據：引用必須真的區分被指名的那一對群體", () => {
+  it("distinguishesPair：極差 >= 0.35 才成立；代表性陳述只在恰好兩個可報告群時當作證據", () => {
+    const m = threeGroupMathResult();
+    const buckets = computeEvidenceBuckets(m, [1, 2, 3, 4]);
+    const [gA, gB, gC] = m.groups as [MathResult["groups"][0], MathResult["groups"][0], MathResult["groups"][0]];
+    // s1：A/B 一致（都 100% 同意），C 不同意
+    expect(distinguishesPair(buckets.groupStatsMap, 3, 1, gA, gB)).toBe(false);
+    expect(distinguishesPair(buckets.groupStatsMap, 3, 1, gA, gC)).toBe(true);
+    // s2：三群一致
+    expect(distinguishesPair(buckets.groupStatsMap, 3, 2, gA, gC)).toBe(false);
+    // 代表性陳述規則：三群時不算，雙群時算
+    const withRep = { ...gA, representative: [{ sid: 2, direction: "agree" as const, prob: 1, probTest: 1, repness: 1, repnessTest: 1, metric: 1, nSuccess: 10, nSeen: 10 }] };
+    expect(distinguishesPair(buckets.groupStatsMap, 3, 2, withRep, gB)).toBe(false);
+    expect(distinguishesPair(buckets.groupStatsMap, 2, 2, withRep, gB)).toBe(true);
+    // 任一群無觀測即不成立
+    const noObs = new Map(buckets.groupStatsMap);
+    noObs.set(gC.id, new Map([[1, stat(1, 0, 0)]]));
+    expect(distinguishesPair(noObs, 3, 1, gA, gC)).toBe(false);
+  });
+
+  it("三群以上：模型把 A/B 一致的陳述指名為 A/B 張力會被整條捨棄，指名真正分歧的一對才保留", async () => {
+    const mathResult = threeGroupMathResult();
+    const aiRun = vi.fn();
+    queuePhases(aiRun, {
+      overview: { summary: "S", citedStatementIds: [1] },
+      commonGround: { keyPoints: [] },
+      groupPortraits: [],
+      tensions: [
+        // s1 在張力池（因 C 不同）但 A/B 對 s1 完全一致 → 捨棄
+        { groupAId: 0, groupBId: 1, topic: "bogus A vs B", groupAPerspective: "a", groupBPerspective: "b", tensions: "t", bridgingQuestion: "q", citedStatementIds: [1] },
+        // s1 真正區分 A 與 C → 保留
+        { groupAId: 0, groupBId: 2, topic: "real A vs C", groupAPerspective: "a", groupBPerspective: "c", tensions: "t", bridgingQuestion: "q", citedStatementIds: [1] },
+        // 混入一筆不區分該對的引用（s2 三群一致）→ 整條捨棄
+        { groupAId: 1, groupBId: 2, topic: "mixed B vs C", groupAPerspective: "b", groupBPerspective: "c", tensions: "t", bridgingQuestion: "q", citedStatementIds: [1, 2] },
+      ],
+    });
+    const res = (await generateSensemaking({
+      ai: { run: aiRun } as unknown as Ai,
+      reserveGlobal: async () => true,
+      lang: "en",
+      title: "Title",
+      description: "Desc",
+      mathResult,
+      statements: fourStatements,
+      mathRevision: 1,
+      now: 1000,
+    })) as SensemakingResponse;
+    expect(res.status).toBe("ready");
+    if (res.status !== "ready") return;
+    expect(res.tensions.map((t) => [t.groupAId, t.groupBId, t.topic])).toEqual([[0, 2, "real A vs C"]]);
+  });
+
+  it("確定性 fallback 依實際極差選配對，不寫死最大兩群；無證據則不產生張力", () => {
+    const m = threeGroupMathResult([12, 11, 10]);
+    const buckets = computeEvidenceBuckets(m, [1, 2, 3, 4]);
+    // s1 區分 (A,C)、(B,C)；s3 區分 (A,B)、(B,C)。B/C 兩筆證據最多 → 選 B/C
+    const pair = pickDeterministicTensionPair(m.groups, buckets.groupStatsMap, buckets.eligibleTensionSids, new Set([1, 2, 3, 4]));
+    expect(pair).not.toBeNull();
+    expect([pair!.gA.id, pair!.gB.id]).toEqual([1, 2]);
+    expect(pair!.cites.sort()).toEqual([1, 3]);
+
+    const det = generateDeterministicSensemaking({ lang: "zh", title: "T", mathResult: m, statements: fourStatements, mathRevision: 1, now: 1 });
+    expect(det.tensions).toHaveLength(1);
+    expect([det.tensions[0]!.groupAId, det.tensions[0]!.groupBId]).toEqual([1, 2]);
+    for (const sid of det.tensions[0]!.citedStatementIds) {
+      expect(distinguishesPair(buckets.groupStatsMap, 3, sid, m.groups[1]!, m.groups[2]!)).toBe(true);
+    }
+
+    // 三群對每一句都一致 → 張力池空 → 無張力
+    const flat = threeGroupMathResult();
+    for (const g of flat.groups) g.statementStats = [stat(1, g.size, 0), stat(2, g.size, 0), stat(3, g.size, 0), stat(4, g.size, 0)];
+    const flatDet = generateDeterministicSensemaking({ lang: "en", title: "T", mathResult: flat, statements: fourStatements, mathRevision: 1, now: 1 });
+    expect(flatDet.tensions).toEqual([]);
   });
 });
