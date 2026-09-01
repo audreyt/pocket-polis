@@ -20,6 +20,8 @@ import { DETERMINISTIC_MODEL, SENSEMAKING_MODEL } from "../src/sensemaking";
 // In-memory mock SQLite storage for DurableObject
 class MockSqlStorage {
   private meta = new Map<string, string>();
+  statements: Array<{ sid: number; text: string; status: string }> = [];
+  votes: Array<{ pid: string; sid: number; value: number }> = [];
 
   exec(query: string, ...params: unknown[]) {
     const q = query.trim();
@@ -54,6 +56,25 @@ class MockSqlStorage {
     if (q.startsWith("DELETE FROM meta WHERE key = ?")) {
       this.meta.delete(String(params[0]));
       return { toArray: () => [] };
+    }
+
+    if (q.includes("FROM statements") && q.includes("status = 'approved'")) {
+      if (q.includes("COALESCE(SUM")) {
+        const sum = this.votes.length;
+        return { one: () => ({ v: sum }), toArray: () => [{ v: sum }] };
+      }
+      const approved = this.statements.filter((s) => s.status === "approved");
+      return {
+        toArray: () => approved,
+        one: () => approved[0] || {},
+      };
+    }
+
+    if (q.includes("FROM votes")) {
+      return {
+        toArray: () => this.votes,
+        one: () => this.votes[0] || {},
+      };
     }
 
     return { toArray: () => [], one: () => ({}) };
@@ -283,6 +304,77 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
     const failureVal = ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", "synthesis_failure").one()?.value;
     expect(failureVal).toContain("Network transport timeout");
   });
+  it("enqueue 傳輸失敗時 synthesis_failure 實施 30 秒退避與暫時不可用原因，過期後自動恢復", async () => {
+    const ctx = {
+      storage: {
+        sql: new MockSqlStorage(),
+        transactionSync: (fn: () => void) => fn(),
+      },
+    } as unknown as DurableObjectState;
+
+    const conv = new Conversation(ctx, {} as unknown as Env);
+    const now = 5000;
+    (ctx.storage.sql as any).exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "settings",
+      JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
+    );
+    (ctx.storage.sql as any).exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "id", "conv123456");
+    vi.spyOn(conv as any, "getResults").mockResolvedValue({
+      result: {
+        computedAt: 42,
+        k: 2,
+        nParticipantsClustered: 10,
+        nParticipantsTotal: 10,
+        nVotes: 50,
+        statementStats: [],
+        consensus: { agree: [], disagree: [] },
+        groups: [
+          { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
+          { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
+        ],
+      },
+    });
+    vi.spyOn(conv, "publicStatements").mockResolvedValue({
+      statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
+    });
+
+    (ctx.storage.sql as any).exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "synthesis_pending",
+      JSON.stringify({ jobId: "job-fail", sourceRevision: 42, startedAt: now }),
+    );
+
+    // 呼叫 markSensemakingEnqueueFailed（設定 retryAfter = now + 30000）
+    await conv.markSensemakingEnqueueFailed("job-fail", now, "Queue enqueue transport timeout");
+
+    // 1. 處於 30 秒退避期內（now + 5000）：回傳 unavailable、保留自訂原因與 retryAfter
+    const blockedRes = await conv.checkOrStartSynthesis("conv123456", now + 5000);
+    expect(blockedRes.needsEnqueue).toBeUndefined();
+    expect(blockedRes.response.status).toBe("unavailable");
+    if (blockedRes.response.status === "unavailable") {
+      expect(blockedRes.response.reason).toBe("Queue enqueue transport timeout");
+      expect(blockedRes.response.retryAfter).toBe(now + 30000);
+    }
+
+    // 2. 測試原因為空時退避預設 reason 為 "AI synthesis is temporarily unavailable."
+    (ctx.storage.sql as any).exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "synthesis_failure",
+      JSON.stringify({ failedAt: now, retryAfter: now + 30000, reason: "" }),
+    );
+    const defaultReasonRes = await conv.checkOrStartSynthesis("conv123456", now + 6000);
+    expect(defaultReasonRes.response.status).toBe("unavailable");
+    if (defaultReasonRes.response.status === "unavailable") {
+      expect(defaultReasonRes.response.reason).toBe("AI synthesis is temporarily unavailable.");
+    }
+
+    // 3. 超過 30 秒退避期（now + 30000）：退避結束，成功發起新生成任務
+    const recoveredRes = await conv.checkOrStartSynthesis("conv123456", now + 30000);
+    expect(recoveredRes.response.status).toBe("pending");
+    expect(recoveredRes.needsEnqueue).toBeDefined();
+    expect(recoveredRes.needsEnqueue?.conversationId).toBe("conv123456");
+  });
 
   it("Queue Handler 冪等性與過期 sourceRevision 驗證", async () => {
     const ctx = {
@@ -467,7 +559,7 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
       SENSEMAKING_QUEUE: { send },
     } as any;
     const execCtx = { waitUntil: (p: Promise<unknown>) => p } as any;
-    const req = new Request("https://polis.tw/api/conversations/conv123456/synthesis", {
+    const req = new Request("https://example.com/api/conversations/conv123456/synthesis", {
       headers: { "Cache-Control": "no-cache" },
     });
 
@@ -575,12 +667,148 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
     } as any;
 
     const ctx = { waitUntil: (p: Promise<unknown>) => p } as any;
-    const synthReq = new Request("https://polis.tw/api/conversations/conv123456/synthesis");
+    const synthReq = new Request("https://example.com/api/conversations/conv123456/synthesis");
     const res = await worker.fetch(synthReq, envMockWithoutQueue, ctx);
-
     expect(markFailedSpy).toHaveBeenCalledWith("job-missing-queue", expect.any(Number), expect.any(String));
     const data = (await res.json()) as any;
     expect(data.status).toBe("unavailable");
+  });
+
+  it("舊版或無 schemaVersion 之 legacy mathCache 立即判定失效並重算，持久化 schemaVersion: 2 與 group statementStats", async () => {
+    const sqlStorage = new MockSqlStorage();
+    sqlStorage.statements = [
+      { sid: 1, text: "s1", status: "approved" },
+      { sid: 2, text: "s2", status: "approved" },
+      { sid: 3, text: "s3", status: "approved" },
+      { sid: 4, text: "s4", status: "approved" },
+    ];
+    sqlStorage.votes = [
+      // Group 1 participants: agree 1, 2; disagree 3, 4
+      { pid: "p1", sid: 1, value: 1 }, { pid: "p1", sid: 2, value: 1 }, { pid: "p1", sid: 3, value: -1 }, { pid: "p1", sid: 4, value: -1 },
+      { pid: "p2", sid: 1, value: 1 }, { pid: "p2", sid: 2, value: 1 }, { pid: "p2", sid: 3, value: -1 }, { pid: "p2", sid: 4, value: -1 },
+      { pid: "p3", sid: 1, value: 1 }, { pid: "p3", sid: 2, value: 1 }, { pid: "p3", sid: 3, value: -1 }, { pid: "p3", sid: 4, value: -1 },
+      // Group 2 participants: disagree 1, 2; agree 3, 4
+      { pid: "p4", sid: 1, value: -1 }, { pid: "p4", sid: 2, value: -1 }, { pid: "p4", sid: 3, value: 1 }, { pid: "p4", sid: 4, value: 1 },
+      { pid: "p5", sid: 1, value: -1 }, { pid: "p5", sid: 2, value: -1 }, { pid: "p5", sid: 3, value: 1 }, { pid: "p5", sid: 4, value: 1 },
+      { pid: "p6", sid: 1, value: -1 }, { pid: "p6", sid: 2, value: -1 }, { pid: "p6", sid: 3, value: 1 }, { pid: "p6", sid: 4, value: 1 },
+    ];
+
+    const ctx = {
+      storage: {
+        sql: sqlStorage,
+        transactionSync: (fn: () => void) => fn(),
+      },
+    } as any;
+
+    const conv = new Conversation(ctx, {} as any);
+    const now = 1000000;
+
+    // 模擬舊版未含 schemaVersion 且 groups 缺少 statementStats 的 mathCache
+    const legacyMathCache = {
+      revision: 1,
+      publicResult: {
+        conversationId: "conv123456",
+        computedAt: now - 1000,
+        nVotes: 24,
+        nParticipantsTotal: 6,
+        nParticipantsClustered: 6,
+        inclusionThreshold: 1,
+        k: 2,
+        groups: [
+          { id: 0, label: "0", size: 3, center: [0, 0], representative: [] },
+          { id: 1, label: "1", size: 3, center: [1, 1], representative: [] },
+        ],
+        consensus: { agree: [], disagree: [] },
+        statementStats: [],
+        points: [],
+      },
+      pidPoints: {},
+    };
+
+    sqlStorage.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "id", "conv123456");
+    sqlStorage.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "revision", "1");
+    sqlStorage.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "mathCache", JSON.stringify(legacyMathCache));
+    // mathComputedAt 距今僅 1000ms（遠小於 minInterval 30000ms）
+    sqlStorage.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "mathComputedAt", String(now - 1000));
+
+    // 執行真實 production getResults（不 mock recompute），驗證在 minInterval 內因 schema 失效而立即重算
+    const results = await conv.getResults(null, now);
+    expect(results).toBeDefined();
+    expect(results?.result.groups.length).toBeGreaterThanOrEqual(2);
+    expect(results?.result.groups[0].statementStats).toBeDefined();
+    expect(results?.result.groups[0].statementStats.length).toBeGreaterThan(0);
+
+    // 驗證 SQLite meta 中實際持久化了 schemaVersion: 2 的結構
+    const storedRaw = sqlStorage.exec("SELECT value FROM meta WHERE key = ?", "mathCache").one()?.value;
+    expect(storedRaw).toBeDefined();
+    const storedCache = JSON.parse(storedRaw!);
+    expect(storedCache.schemaVersion).toBe(2);
+    expect(storedCache.publicResult.groups.every((g: any) => Array.isArray(g.statementStats) && g.statementStats.length > 0)).toBe(true);
+  });
+
+  it("確定性 fallback (persistDeterministicReady) 僅在 mathRevision 一致時重用現有 ready 快取，revision 變更時重新生成", async () => {
+    const ctx = {
+      storage: {
+        sql: new MockSqlStorage(),
+        transactionSync: (fn: () => void) => fn(),
+      },
+    } as any;
+
+    const conv = new Conversation(ctx, {} as any);
+    const now = 1000000;
+
+    const oldSynthesis = {
+      version: "v1",
+      status: "ready",
+      model: DETERMINISTIC_MODEL,
+      generatedAt: now - 50000,
+      mathRevision: 1,
+      lang: "zh",
+      overview: { summary: "Revision 1 Synthesis", participantContext: "", citedStatementIds: [] },
+      themes: [],
+      commonGround: { summary: "", keyPoints: [] },
+      groupPortraits: [],
+      tensions: [],
+      provenance: {
+        generatedAt: now - 50000,
+        mathRevision: 1,
+        participantCount: 10,
+        clusteredCount: 10,
+        statementCount: 5,
+        voteCount: 50,
+        groupCount: 2,
+      },
+    };
+
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "synthesis_data", JSON.stringify(oldSynthesis));
+
+    const mathResult = {
+      conversationId: "conv123456",
+      computedAt: now,
+      nVotes: 60,
+      nParticipantsTotal: 12,
+      nParticipantsClustered: 12,
+      inclusionThreshold: 1,
+      k: 2,
+      groups: [
+        { id: 0, label: "0", size: 6, center: [0, 0], representative: [], statementStats: [] },
+        { id: 1, label: "1", size: 6, center: [1, 1], representative: [], statementStats: [] },
+      ],
+      consensus: { agree: [], disagree: [] },
+      statementStats: [],
+      points: [],
+    };
+    const statements = [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }];
+
+    // 1. 相同 mathRevision (1)：重用現有快取
+    const reused = (conv as any).persistDeterministicReady("zh", "標題", mathResult, statements, 1, now);
+    expect(reused.mathRevision).toBe(1);
+    expect(reused.overview.summary).toBe("Revision 1 Synthesis");
+
+    // 2. 新 mathRevision (2)：不重用舊快取，重新生成 mathRevision 2 之確定性綜整
+    const regenerated = (conv as any).persistDeterministicReady("zh", "標題", mathResult, statements, 2, now);
+    expect(regenerated.mathRevision).toBe(2);
+    expect(regenerated.provenance.mathRevision).toBe(2);
   });
 });
 
@@ -951,7 +1179,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     const ctx = { waitUntil: (p: Promise<unknown>) => p } as any;
 
     // 1. 公開 Info -> 觸發快取 match & put
-    const infoReq = new Request("https://polis.tw/api/conversations/testconv01");
+    const infoReq = new Request("https://example.com/api/conversations/testconv01");
     const infoRes = await worker.fetch(infoReq, envMock, ctx);
     expect(infoRes.headers.get("Cache-Control")).toContain("max-age=10");
     expect(cacheMatchSpy).toHaveBeenCalled();
@@ -961,12 +1189,12 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     cachePutSpy.mockClear();
 
     // 2. /synthesis 帶有任意 query 參數 (例如 ?lang=en&ref=share) -> 快取 key 移除所有 query
-    const synthReq = new Request("https://polis.tw/api/conversations/testconv01/synthesis?lang=en&ref=share");
+    const synthReq = new Request("https://example.com/api/conversations/testconv01/synthesis?lang=en&ref=share");
     const synthRes = await worker.fetch(synthReq, envMock, ctx);
     expect(synthRes.headers.get("Cache-Control")).toContain("max-age=300");
 
     const matchedReq = cacheMatchSpy.mock.calls[0][0] as Request;
-    expect(matchedReq.url).toBe("https://polis.tw/api/conversations/testconv01/synthesis");
+    expect(matchedReq.url).toBe("https://example.com/api/conversations/testconv01/synthesis");
     expect(matchedReq.url).not.toContain("?");
   });
 
@@ -986,7 +1214,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     } as any;
     const ctx = { waitUntil: (p: Promise<unknown>) => p } as any;
 
-    const req = new Request("https://polis.tw/api/conversations/testconv01");
+    const req = new Request("https://example.com/api/conversations/testconv01");
     const res = await worker.fetch(req, envMock, ctx);
     const data = await res.json();
     expect(data).toEqual({ cached: true });
@@ -1004,7 +1232,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     } as any;
     const ctx = { waitUntil: (p: Promise<unknown>) => p } as any;
 
-    const req = new Request("https://polis.tw/api/conversations/testconv01", {
+    const req = new Request("https://example.com/api/conversations/testconv01", {
       headers: { "Cache-Control": "no-cache" },
     });
     const res = await worker.fetch(req, envMock, ctx);
@@ -1018,7 +1246,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     const envMock = {} as any;
     const ctx = { waitUntil: (p: Promise<unknown>) => p } as any;
 
-    const unknownReq = new Request("https://polis.tw/api/unknown-endpoint");
+    const unknownReq = new Request("https://example.com/api/unknown-endpoint");
     await worker.fetch(unknownReq, envMock, ctx);
     expect(cacheMatchSpy).not.toHaveBeenCalled();
     expect(cachePutSpy).not.toHaveBeenCalled();
@@ -1031,7 +1259,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     const ctx = { waitUntil: (p: Promise<unknown>) => p } as any;
 
     // 404 請求
-    const req404 = new Request("https://polis.tw/c/notanactualid123");
+    const req404 = new Request("https://example.com/c/notanactualid123");
     const res404 = await worker.fetch(req404, envMock, ctx);
     expect(res404.status).toBe(404);
     expect(cachePutSpy).not.toHaveBeenCalled();
@@ -1058,7 +1286,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     cacheMatchSpy.mockClear();
     cachePutSpy.mockClear();
     const pidReq = new Request(
-      "https://polis.tw/api/conversations/testconv01/results?pid=00000000-0000-0000-0000-000000000001",
+      "https://example.com/api/conversations/testconv01/results?pid=00000000-0000-0000-0000-000000000001",
     );
     const pidRes = await worker.fetch(pidReq, envMock, ctx);
     expect(pidRes.headers.get("Cache-Control")).toContain("no-store");
@@ -1068,7 +1296,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     // 2. 帶 Authorization -> no match, no put
     cacheMatchSpy.mockClear();
     cachePutSpy.mockClear();
-    const authReq = new Request("https://polis.tw/api/conversations/testconv01/admin", {
+    const authReq = new Request("https://example.com/api/conversations/testconv01/admin", {
       headers: { Authorization: "Bearer 00000000000000000000000000000000" },
     });
     await worker.fetch(authReq, envMock, ctx);
@@ -1078,7 +1306,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     // 3. 管理頁面 /a/testconv01 -> no match, no put
     cacheMatchSpy.mockClear();
     cachePutSpy.mockClear();
-    const adminPageReq = new Request("https://polis.tw/a/testconv01");
+    const adminPageReq = new Request("https://example.com/a/testconv01");
     await worker.fetch(adminPageReq, envMock, ctx);
     expect(cacheMatchSpy).not.toHaveBeenCalled();
     expect(cachePutSpy).not.toHaveBeenCalled();
@@ -1086,7 +1314,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     // 4. 資料匯出 /export/votes.csv -> no match, no put
     cacheMatchSpy.mockClear();
     cachePutSpy.mockClear();
-    const exportReq = new Request("https://polis.tw/api/conversations/testconv01/export/votes.csv");
+    const exportReq = new Request("https://example.com/api/conversations/testconv01/export/votes.csv");
     await worker.fetch(exportReq, envMock, ctx);
     expect(cacheMatchSpy).not.toHaveBeenCalled();
     expect(cachePutSpy).not.toHaveBeenCalled();
@@ -1094,7 +1322,7 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     // 5. POST /votes -> no match, no put
     cacheMatchSpy.mockClear();
     cachePutSpy.mockClear();
-    const voteReq = new Request("https://polis.tw/api/conversations/testconv01/votes", {
+    const voteReq = new Request("https://example.com/api/conversations/testconv01/votes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pid: "00000000-0000-0000-0000-000000000001", sid: 1, value: 1 }),
@@ -1106,9 +1334,35 @@ describe("Workers Cache 策略與標頭排除矩陣", () => {
     // 6. HEAD 請求 -> no match, no put
     cacheMatchSpy.mockClear();
     cachePutSpy.mockClear();
-    const headReq = new Request("https://polis.tw/api/conversations/testconv01", { method: "HEAD" });
+    const headReq = new Request("https://example.com/api/conversations/testconv01", { method: "HEAD" });
     await worker.fetch(headReq, envMock, ctx);
     expect(cacheMatchSpy).not.toHaveBeenCalled();
     expect(cachePutSpy).not.toHaveBeenCalled();
+  });
+
+  it("Request 帶有大小寫混合之 Cache-Control (例如 No-Cache, NO-STORE, max-age=0) 均正確略過快取直通 DO", async () => {
+    const stubMock = {
+      isConversation: vi.fn().mockResolvedValue(true),
+      publicInfo: vi.fn().mockResolvedValue({ id: "testconv01", title: "Fresh Title" }),
+    };
+    const envMock = {
+      CONVERSATION: { getByName: vi.fn().mockReturnValue(stubMock) },
+    } as any;
+    const ctx = { waitUntil: (p: Promise<unknown>) => p } as any;
+
+    for (const headerVal of ["No-Cache", "NO-STORE", "Max-Age=0", "no-cache, no-store"]) {
+      cacheMatchSpy.mockClear();
+      cachePutSpy.mockClear();
+      stubMock.publicInfo.mockClear();
+
+      const req = new Request("https://example.com/api/conversations/testconv01", {
+        headers: { "Cache-Control": headerVal },
+      });
+      const res = await worker.fetch(req, envMock, ctx);
+      expect(res.status).toBe(200);
+      expect(cacheMatchSpy).not.toHaveBeenCalled();
+      expect(cachePutSpy).not.toHaveBeenCalled();
+      expect(stubMock.publicInfo).toHaveBeenCalled();
+    }
   });
 });

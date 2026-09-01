@@ -1,4 +1,4 @@
-import { api, conversationIdFromPath, el, groupColor, show } from "./common.js";
+import { accessibleTextColor, api, conversationIdFromPath, el, groupColor, show, statementRowAttrs } from "./common.js";
 import { applyI18n, lang, mountLangSwitch, t } from "./i18n.js";
 
 applyI18n();
@@ -6,7 +6,7 @@ mountLangSwitch(document.getElementById("lang-switch"));
 
 if (lang === "en") {
   const methodLink = document.getElementById("method-link");
-  if (methodLink) methodLink.href = "/guide-en#how-it-works";
+  if (methodLink) methodLink.href = "/en/guide#how-it-works";
 }
 
 const convId = conversationIdFromPath();
@@ -222,11 +222,12 @@ function renderMap(result, you) {
       stroke: "var(--surface)",
       "stroke-width": "2",
     });
+    const textColor = accessibleTextColor(color);
     const labelText = svgEl("text", {
       x: center.x.toFixed(1),
       y: (center.y + 4.5).toFixed(1),
       "text-anchor": "middle",
-      fill: "#ffffff",
+      fill: textColor,
       "font-size": "11",
       "font-weight": "700",
     });
@@ -348,12 +349,44 @@ function schedulePendingPoll() {
     }
   }, pollIntervalMs);
 }
+function setModelBadge(synthesis) {
+  const modelBadge = document.getElementById("ai-model-badge");
+  if (!modelBadge) return;
+  // 只有真正渲染了 ready 結果（模型或統計摘要）才顯示歸屬；其餘狀態一律隱藏，避免誤標 Gemma
+  if (!synthesis || !synthesis.overview) {
+    modelBadge.textContent = "";
+    show(modelBadge, false);
+    return;
+  }
+  modelBadge.textContent =
+    synthesis.generationMode === "deterministic" || synthesis.model === "deterministic"
+      ? t("r.aiModelDeterministic")
+      : t("r.aiModelTag");
+  show(modelBadge, true);
+}
+
+function clearSynthesisDom() {
+  document.getElementById("themes-container")?.replaceChildren();
+  show(document.getElementById("themes-section"), false);
+  document.getElementById("common-ground-container")?.replaceChildren();
+  document.getElementById("tensions-container")?.replaceChildren();
+  document.getElementById("group-portraits-container")?.replaceChildren();
+  if (activeThemeFilter !== null) {
+    activeThemeFilter = null;
+    if (currentMathResult) {
+      renderStatements(currentMathResult);
+    }
+  }
+}
+
 function renderAiOverview(synthesis, mathResult) {
   const container = document.getElementById("ai-overview-container");
   const statusBadge = document.getElementById("ai-status-badge");
   container.replaceChildren();
 
   if (!synthesis || synthesis.status === "unavailable") {
+    clearSynthesisDom();
+    setModelBadge(null);
     if (pendingPollTimer) {
       clearTimeout(pendingPollTimer);
       pendingPollTimer = null;
@@ -366,11 +399,12 @@ function renderAiOverview(synthesis, mathResult) {
         el("p", { class: "muted", text: synthesis?.reason || t("r.aiUnavailable") }),
       ]),
     );
-    show(document.getElementById("themes-section"), false);
     return;
   }
 
   if (synthesis.status === "insufficient") {
+    clearSynthesisDom();
+    setModelBadge(null);
     if (pendingPollTimer) {
       clearTimeout(pendingPollTimer);
       pendingPollTimer = null;
@@ -383,9 +417,9 @@ function renderAiOverview(synthesis, mathResult) {
         el("p", { class: "muted", text: synthesis.reason || t("r.aiInsufficient") }),
       ]),
     );
-    show(document.getElementById("themes-section"), false);
     return;
   }
+
 
   if (synthesis.status === "pending") {
     statusBadge.textContent = t("r.aiPending");
@@ -394,6 +428,7 @@ function renderAiOverview(synthesis, mathResult) {
 
     // 若先前已有快取內容，展示快取並加上更新中標記
     if (synthesis.overview && synthesis.themes) {
+      setModelBadge(synthesis);
       const staleNotice = el("div", { class: "notice stale-banner" }, [
         el("p", { class: "muted", text: t("r.aiPending") }),
       ]);
@@ -422,12 +457,13 @@ function renderAiOverview(synthesis, mathResult) {
       renderTensions(synthesis.tensions);
       renderGroupPortraits(synthesis.groupPortraits);
     } else {
+      clearSynthesisDom();
+      setModelBadge(null);
       container.append(
         el("div", { class: "card notice" }, [
           el("p", { class: "lead-text", text: t("r.aiPending") }),
         ]),
       );
-      show(document.getElementById("themes-section"), false);
     }
 
     schedulePendingPoll();
@@ -461,13 +497,7 @@ function renderAiOverview(synthesis, mathResult) {
   }
   show(statusBadge, true);
 
-  const modelBadge = document.querySelector(".ai-model-badge");
-  if (modelBadge) {
-    modelBadge.textContent =
-      synthesis.generationMode === "deterministic" || synthesis.model === "deterministic"
-        ? t("r.aiModelDeterministic")
-        : t("r.aiModelTag");
-  }
+  setModelBadge(synthesis);
 
   const cardChildren = [];
   if (synthesis.isStale) {
@@ -604,8 +634,8 @@ function renderCommonGroundSynthesis(cg) {
       const dir = kp.direction || "agree";
       const tagText = dir === "disagree" ? t("r.mostlyDisagree") : t("r.mostlyAgree");
       const dirTag = el("span", { class: `tag ${dir}`, text: tagText });
-      const header = el("div", { class: "cg-point-header", style: "display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.2rem;" }, [
-        el("h4", { text: kp.title, style: "margin: 0;" }),
+      const header = el("div", { class: "cg-point-header" }, [
+        el("h4", { text: kp.title }),
         dirTag,
       ]);
       const item = el("div", { class: "cg-point-item" }, [
@@ -626,6 +656,12 @@ function renderCommonGroundSynthesis(cg) {
   container.append(card);
 }
 
+function perspectiveLabel(label, color) {
+  const node = el("strong", { text: t("r.groupPerspective", { label }) });
+  node.style.color = color;
+  return node;
+}
+
 function renderTensions(tensions) {
   const container = document.getElementById("tensions-container");
   container.replaceChildren();
@@ -634,7 +670,6 @@ function renderTensions(tensions) {
     container.append(el("p", { class: "muted card", text: t("r.tensionsEmpty") }));
     return;
   }
-
   for (const tn of tensions) {
     const colorA = groupColor(tn.groupAId);
     const colorB = groupColor(tn.groupBId);
@@ -645,19 +680,13 @@ function renderTensions(tensions) {
         ? el("div", { class: "tension-perspectives" }, [
             tn.groupAPerspective
               ? el("div", { class: "perspective-box group-a" }, [
-                  el("strong", {
-                    text: t("r.groupPerspective", { label: tn.groupALabel }),
-                    style: `color: ${colorA}`,
-                  }),
+                  perspectiveLabel(tn.groupALabel, colorA),
                   el("span", { text: tn.groupAPerspective }),
                 ])
               : null,
             tn.groupBPerspective
               ? el("div", { class: "perspective-box group-b" }, [
-                  el("strong", {
-                    text: t("r.groupPerspective", { label: tn.groupBLabel }),
-                    style: `color: ${colorB}`,
-                  }),
+                  perspectiveLabel(tn.groupBLabel, colorB),
                   el("span", { text: tn.groupBPerspective }),
                 ])
               : null,
@@ -700,26 +729,30 @@ function renderTensionCitations(tn) {
       const labelA = tn.groupALabel;
       const labelB = tn.groupBLabel;
 
-      const comp = el("span", { class: "tension-stat-compare muted", style: "display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; margin-left: 0.4rem;" }, [
-        el("span", {
-          class: "group-stat-pill",
-          text: `${labelA}: ${aPct}% ${t("r.agreeWord")}`,
-          style: `color: ${colorA}; font-weight: 600;`,
-        }),
+      const pillA = el("span", {
+        class: "group-stat-pill",
+        text: `${labelA}: ${aPct}% ${t("r.agreeWord")}`,
+      });
+      pillA.style.color = colorA;
+
+      const pillB = el("span", {
+        class: "group-stat-pill",
+        text: `${labelB}: ${bPct}% ${t("r.agreeWord")}`,
+      });
+      pillB.style.color = colorB;
+
+      const comp = el("span", { class: "tension-stat-compare muted" }, [
+        pillA,
         el("span", { class: "vs-divider", text: " · " }),
-        el("span", {
-          class: "group-stat-pill",
-          text: `${labelB}: ${bPct}% ${t("r.agreeWord")}`,
-          style: `color: ${colorB}; font-weight: 600;`,
-        }),
+        pillB,
       ]);
       nodes.push(comp);
     }
 
-    rows.push(el("div", { class: "tension-citation-item", style: "display: flex; align-items: center; flex-wrap: wrap; margin: 0.25rem 0;" }, nodes));
+    rows.push(el("div", { class: "tension-citation-item" }, nodes));
   }
 
-  return el("div", { class: "tension-citations-list citations-row", style: "display: flex; flex-direction: column; gap: 0.2rem; margin-top: 0.5rem;" }, [
+  return el("div", { class: "tension-citations-list citations-row" }, [
     el("span", { class: "muted label", text: t("r.evidenceQuote") + ":" }),
     ...rows,
   ]);
@@ -817,7 +850,7 @@ function renderGroups(result) {
 function statementLine(sid, extraNodes) {
   const stat = statementIndex.get(sid);
   if (!stat) return null;
-  return el("div", { class: "statement-row", id: `stmt-${sid}`, tabindex: "-1" }, [
+  return el("div", statementRowAttrs(sid, { canonical: false }), [
     citationButton(sid),
     el("div", { class: "text" }, [stat.text, el("div", {}, extraNodes)]),
   ]);
@@ -866,7 +899,7 @@ function renderStatements(result) {
     }
     const stat = statementIndex.get(s.sid);
     container.append(
-      el("div", { class: "statement-row", id: `stmt-${s.sid}`, tabindex: "-1" }, [
+      el("div", statementRowAttrs(s.sid, { canonical: true }), [
         citationButton(s.sid),
         el("div", { class: "text" }, [
           el("div", { class: "statement-body", text: stat ? stat.text : `#${s.sid}` }),
@@ -887,8 +920,8 @@ function renderStatements(result) {
   }
 }
 
-async function loadStatementTexts() {
-  const data = await api(`/api/conversations/${convId}/statements-public`);
+async function loadStatementTexts(fetchOptions = {}) {
+  const data = await api(`/api/conversations/${convId}/statements-public`, fetchOptions);
   statementIndex = new Map(data.statements.map((s) => [s.sid, s]));
 }
 
@@ -931,7 +964,7 @@ async function refresh(options = {}) {
   currentMathResult = result;
 
   if (result.statementStats.some((s) => !statementIndex.has(s.sid))) {
-    await loadStatementTexts();
+    await loadStatementTexts(fetchOptions);
   }
 
   renderStats(result);

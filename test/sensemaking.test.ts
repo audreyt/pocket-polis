@@ -530,7 +530,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
 
   it("共識點若引用混合方向（同時引用同意與不同意共識）則整條捨棄", async () => {
     const { mathResult } = createMockMathResult();
-    // 手動加入同意共識 sid 9 與不同意共識 sid 10
+    // 手動加入同意共識 sid 9 與不同意共識 sid 8
     mathResult.consensus.disagree.push({ sid: 8, prob: 0.95 });
     const statements = [
       { sid: 1, text: "s1" },

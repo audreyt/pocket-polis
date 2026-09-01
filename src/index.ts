@@ -39,7 +39,7 @@ export default {
         } else if (result.retryable) {
           msg.retry();
         } else {
-          // 非 retryable（如模型失敗、配額上限）：已持久化退避至隔日，直接 ack 避免消耗佇列與神經元
+          // 非 retryable（如模型失敗、配額上限）：已持久化當前 revision 之確定性 fallback 結果，直接 ack 避免無效消耗佇列與神經元
           msg.ack();
         }
       } catch (error) {
@@ -68,8 +68,9 @@ async function handleFetchWithCache(
   // 4. 僅允許明確定義之公開頁面與 GET API 端點
   const hasAuth = request.headers.has("Authorization");
   const hasPid = url.searchParams.has("pid");
-  const reqCc = request.headers.get("Cache-Control") || "";
-  const hasBypassHeader = reqCc.includes("no-cache") || reqCc.includes("no-store");
+  const reqCc = (request.headers.get("Cache-Control") || "").toLowerCase();
+  const hasBypassHeader =
+    reqCc.includes("no-cache") || reqCc.includes("no-store") || reqCc.includes("max-age=0");
   const isCacheableCandidate =
     isGet && !hasAuth && !hasPid && !hasBypassHeader && isPublicCacheablePath(url.pathname);
 
@@ -93,9 +94,9 @@ async function handleFetchWithCache(
 
   // 只快取 200 成功回應，且排除含 no-store、private、Set-Cookie 或 Vary:* 之回應
   if (isCacheableCandidate && cache && response.status === 200) {
-    const cc = response.headers.get("Cache-Control") || "";
+    const cc = (response.headers.get("Cache-Control") || "").toLowerCase();
     const hasSetCookie = response.headers.has("Set-Cookie");
-    const vary = response.headers.get("Vary") || "";
+    const vary = (response.headers.get("Vary") || "").toLowerCase();
 
     if (
       !cc.includes("no-store") &&

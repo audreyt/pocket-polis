@@ -2,6 +2,8 @@
 // 把 wrangler.jsonc、package.json 與 README 的關鍵承諾寫成斷言，防止漂移。
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { accessibleTextColor, statementRowAttrs } from "../public/js/common.js";
+import { STRINGS } from "../public/js/i18n.js";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const stripJsonc = (text) =>
@@ -146,6 +148,24 @@ describe("雙語頁面", () => {
     expect(read("public/guide.html")).toContain('href="/en/guide"');
     expect(read("public/guide-en.html")).toContain('href="/guide"');
   });
+  it("結果頁方法說明連結中英文分別對應公開路由且錨點均存在", () => {
+    const reportHtml = read("public/report.html");
+    const reportJs = read("public/js/report.js");
+    const guideZh = read("public/guide.html");
+    const guideEn = read("public/guide-en.html");
+    const indexTs = read("src/index.ts");
+
+    // 中文預設 href 為 /guide#how-it-works
+    expect(reportHtml).toContain('href="/guide#how-it-works" id="method-link"');
+    // 英文切換設置 href 為 /en/guide#how-it-works（非內部靜態檔名 /guide-en）
+    expect(reportJs).toContain('methodLink.href = "/en/guide#how-it-works"');
+    expect(reportJs).not.toContain('methodLink.href = "/guide-en#how-it-works"');
+
+    // 路由對照與兩側錨點存在性
+    expect(indexTs).toContain('[/^\\/en\\/guide$/, "/guide-en"]');
+    expect(guideZh).toContain('id="how-it-works"');
+    expect(guideEn).toContain('id="how-it-works"');
+  });
 
   it("應用頁掛上 i18n 與回官網的品牌導覽", () => {
     for (const page of ["participate", "report", "admin"]) {
@@ -154,6 +174,177 @@ describe("雙語頁面", () => {
       expect(html).toContain('id="home-link"');
     }
     expect(read("public/js/i18n.js")).toContain("STRINGS");
+  });
+  it("statementRowAttrs 確保只有 canonical 行擁有 id=stmt-<sid> 與 tabindex=-1，摘要行不帶 ID", () => {
+    const summaryRow = statementRowAttrs(42, { canonical: false });
+    const defaultRow = statementRowAttrs(42);
+    const canonicalRow = statementRowAttrs(42, { canonical: true });
+
+    // 摘要行與預設調用：僅含 CSS class，絕不發射 id 或 tabindex
+    expect(summaryRow).toEqual({ class: "statement-row" });
+    expect(defaultRow).toEqual({ class: "statement-row" });
+
+    // canonical 全陳述列表行：唯一持有 id="stmt-<sid>" 與 tabindex="-1"
+    expect(canonicalRow).toEqual({
+      class: "statement-row",
+      id: "stmt-42",
+      tabindex: "-1",
+    });
+
+    // 同一 sid 出現在共識卡、分群代表卡與全陳述列表時，全局僅有 1 個可導覽目標 ID
+    const renderedRows = [
+      statementRowAttrs(7, { canonical: false }), // 共識摘要列表
+      statementRowAttrs(7, { canonical: false }), // 群體 0 代表意見
+      statementRowAttrs(7, { canonical: false }), // 群體 1 代表意見
+      statementRowAttrs(7, { canonical: true }),  // 全陳述列表（唯一的導覽目標）
+    ];
+    const rowsWithId = renderedRows.filter((r) => typeof r.id === "string");
+    expect(rowsWithId).toHaveLength(1);
+    expect(rowsWithId[0].id).toBe("stmt-7");
+    expect(rowsWithId[0].tabindex).toBe("-1");
+  });
+});
+describe("結果頁無障礙、樣式與 CSP 合約", () => {
+  function extractGroupTokens(css) {
+    const rootBlock = css.match(/:root\s*\{([^}]+)\}/)?.[1] || "";
+    const darkBlock = css.match(/@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]+)\}/)?.[1] || "";
+
+    const extract = (block) => {
+      const map = {};
+      for (let i = 0; i < 5; i++) {
+        const match = block.match(new RegExp(`--group-${i}:\\s*(#[0-9a-fA-F]{3,6})`));
+        if (match) map[`group-${i}`] = match[1];
+      }
+      return map;
+    };
+
+    return {
+      light: extract(rootBlock),
+      dark: extract(darkBlock),
+    };
+  }
+
+  function testLocalWcagContrast(hex1, hex2) {
+    const toLinear = (c8) => {
+      const v = c8 / 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    const lum = (hex) => {
+      const clean = hex.replace("#", "");
+      const r = parseInt(clean.slice(0, 2), 16);
+      const g = parseInt(clean.slice(2, 4), 16);
+      const b = parseInt(clean.slice(4, 6), 16);
+      return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    };
+    const l1 = lum(hex1);
+    const l2 = lum(hex2);
+    const lighter = Math.max(l1, l2);
+    const darker = Math.min(l1, l2);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  it("WCAG AA 對比度：從 style.css 解析之 5 組淺色與 5 組深色群體色票，accessibleTextColor 選擇之前景均達到 >= 4.5:1 對比度", () => {
+    const css = read("public/style.css");
+    const { light, dark } = extractGroupTokens(css);
+
+    expect(Object.keys(light)).toHaveLength(5);
+    expect(Object.keys(dark)).toHaveLength(5);
+
+    const expectedForegrounds = {
+      light: {
+        "group-0": "#ffffff",
+        "group-1": "#000000",
+        "group-2": "#000000",
+        "group-3": "#ffffff",
+        "group-4": "#ffffff",
+      },
+      dark: {
+        "group-0": "#000000",
+        "group-1": "#000000",
+        "group-2": "#000000",
+        "group-3": "#000000",
+        "group-4": "#000000",
+      },
+    };
+
+    for (const [key, bgHex] of Object.entries(light)) {
+      const fg = accessibleTextColor(bgHex);
+      expect(fg).toBe(expectedForegrounds.light[key]);
+      const cr = testLocalWcagContrast(bgHex, fg);
+      expect(cr, `Light mode ${key} (${bgHex}) with ${fg} must satisfy WCAG AA`).toBeGreaterThanOrEqual(4.5);
+    }
+
+    for (const [key, bgHex] of Object.entries(dark)) {
+      const fg = accessibleTextColor(bgHex);
+      expect(fg).toBe(expectedForegrounds.dark[key]);
+      const cr = testLocalWcagContrast(bgHex, fg);
+      expect(cr, `Dark mode ${key} (${bgHex}) with ${fg} must satisfy WCAG AA`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("r.backToAll 定義於 STRINGS 且中英文均非空", () => {
+    expect(STRINGS["r.backToAll"]).toBeDefined();
+    expect(STRINGS["r.backToAll"][0]).toBe("顯示全部意見");
+    expect(STRINGS["r.backToAll"][1]).toBe("Show all statements");
+    expect(read("public/report.html")).toContain('data-i18n="r.backToAll"');
+  });
+
+  it("列印樣式保留 .sid-chip 引用按鈕可見性", () => {
+    const css = read("public/style.css");
+    expect(css).toContain("button:not(.sid-chip)");
+    expect(css).toMatch(/\.sid-chip\s*\{[^}]*display:\s*inline-flex\s*!important/);
+  });
+
+  it("CSP style-src self 相容性：靜態佈局類別定義於 CSS 且 report.js 絕不使用 el() style 屬性", () => {
+    const css = read("public/style.css");
+    const js = read("public/js/report.js");
+
+    expect(css).toContain(".cg-point-header");
+    expect(css).toContain(".tension-stat-compare");
+    expect(css).toContain(".tension-citation-item");
+    expect(css).toContain(".tension-citations-list");
+
+    // report.js 中不應出現 el(..., { ... style: ... }) 傳入 style 屬性（因為會被 setAttribute 擋下）
+    const styleAttrInEl = /el\(\s*["'][a-z0-9]+["']\s*,\s*\{[^}]*\bstyle\s*:/i.test(js);
+    expect(styleAttrInEl).toBe(false);
+  });
+
+  it("prefers-reduced-motion 覆寫必須位於所有 animation 宣告之後且加 !important，才能贏得同特異性層疊", () => {
+    const css = read("public/style.css");
+    const rmIdx = css.indexOf("@media (prefers-reduced-motion: reduce)");
+    expect(rmIdx).toBeGreaterThan(0);
+    const block = css.slice(rmIdx);
+    expect(block).toMatch(/\.highlight-target[^{]*\{[^}]*animation:\s*none\s*!important/);
+    expect(block).toMatch(/\.badge\.pulse[^{]*\{[^}]*animation:\s*none\s*!important/);
+    // 媒體區塊之後不得再有任何 animation: 宣告（否則後者覆蓋）
+    const after = css.slice(rmIdx).replace(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/, "");
+    expect(after).not.toMatch(/animation:\s*(?!none)/);
+    // 所有帶 animation 的規則都在覆寫區塊之前
+    for (const sel of [".highlight-target", ".badge.pulse", ".map-svg circle.dot"]) {
+      const declIdx = css.search(new RegExp(sel.replace(/[.]/g, "\\.") + "\\s*\\{[^}]*animation:\\s*[a-z-]+\\s"));
+      expect(declIdx).toBeGreaterThan(-1);
+      expect(declIdx).toBeLessThan(rmIdx);
+    }
+  });
+
+  it("模型歸屬徽章：初始 HTML 隱藏且無文字，只在 ready（或帶快取的 pending）時由 setModelBadge 顯示", () => {
+    const html = read("public/report.html");
+    const js = read("public/js/report.js");
+    expect(html).toMatch(/<span class="badge ai-model-badge hidden" id="ai-model-badge"><\/span>/);
+    expect(html).not.toContain(">Gemma 4 26B<");
+    // 唯一寫入點
+    expect(js.match(/getElementById\("ai-model-badge"\)/g)).toHaveLength(1);
+    expect(js).not.toContain('querySelector(".ai-model-badge")');
+    // unavailable / insufficient / 無快取 pending 三條分支皆呼叫 setModelBadge(null)
+    expect(js.match(/setModelBadge\(null\)/g)).toHaveLength(3);
+    const unavailable = js.slice(js.indexOf('synthesis.status === "unavailable"'), js.indexOf('synthesis.status === "insufficient"'));
+    expect(unavailable).toContain("setModelBadge(null)");
+    const insufficient = js.slice(js.indexOf('synthesis.status === "insufficient"'), js.indexOf('synthesis.status === "pending"'));
+    expect(insufficient).toContain("setModelBadge(null)");
+    // setModelBadge 無 overview 時清空並隱藏
+    const fn = js.slice(js.indexOf("function setModelBadge"), js.indexOf("function clearSynthesisDom"));
+    expect(fn).toMatch(/if \(!synthesis \|\| !synthesis\.overview\)[\s\S]*?textContent = ""[\s\S]*?show\(modelBadge, false\)/);
+    expect(fn).toMatch(/r\.aiModelDeterministic[\s\S]*?r\.aiModelTag[\s\S]*?show\(modelBadge, true\)/);
   });
 });
 

@@ -519,21 +519,6 @@ label {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .map-svg circle.dot {
-    animation: none;
-  }
-  .highlight-target {
-    animation: none;
-  }
-  .badge.pulse {
-    animation: none;
-  }
-  * {
-    transition-duration: 0.001ms !important;
-  }
-}
-
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -862,6 +847,18 @@ label {
   margin-top: 1rem;
 }
 
+.cg-point-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.2rem;
+}
+
+.cg-point-header h4 {
+  margin: 0;
+}
+
 .cg-point-item h4 {
   margin: 0 0 0.3rem;
   font-size: 0.98rem;
@@ -952,6 +949,33 @@ label {
   font-weight: 500;
 }
 
+/* 張力數據即時對比與引用列表 */
+.tension-stat-compare {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  margin-left: 0.4rem;
+}
+
+.tension-stat-compare .group-stat-pill {
+  font-weight: 600;
+}
+
+.tension-citation-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.25rem 0;
+}
+
+.tension-citations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.5rem;
+}
+
 /* 群體畫像網格 */
 .portraits-grid {
   display: grid;
@@ -995,8 +1019,14 @@ label {
   }
   .actions,
   .site-nav .lang-switch,
-  button {
+  button:not(.sid-chip) {
     display: none !important;
+  }
+  .sid-chip {
+    border: 1px solid #999999 !important;
+    background: transparent !important;
+    color: #000000 !important;
+    display: inline-flex !important;
   }
   .card {
     box-shadow: none;
@@ -1185,18 +1215,6 @@ footer .credit {
   font-weight: 600;
 }
 
-/* 張力數據即時對比樣式 */
-.tension-stat-compare {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-}
-
-.tension-stat-compare .group-stat-pill {
-  font-weight: 600;
-}
-
 /* 行動裝置觸控目標尺寸（44px 最小觸控範圍） */
 @media (pointer: coarse) {
   .sid-chip,
@@ -1215,5 +1233,17 @@ footer .credit {
 @media (max-width: 360px) {
   .tag {
     white-space: normal;
+  }
+}
+
+/* 減少動態：置於檔尾並加 !important，確保勝過上方同特異性的 animation 宣告 */
+@media (prefers-reduced-motion: reduce) {
+  .map-svg circle.dot,
+  .highlight-target,
+  .badge.pulse {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.001ms !important;
   }
 }

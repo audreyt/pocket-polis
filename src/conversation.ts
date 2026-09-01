@@ -108,7 +108,10 @@ function aiClaimBlocksAttempt(raw: string | null, now: number): boolean {
   if (claim === "absent") return false;
   return now - claim.claimedAt < AI_ATTEMPT_WINDOW_MS;
 }
+const MATH_CACHE_SCHEMA_VERSION = 2;
+
 interface MathCache {
+  schemaVersion: number;
   revision: number;
   publicResult: MathResult;
   pidPoints: Record<string, OpinionPoint>;
@@ -480,7 +483,23 @@ export class Conversation extends DurableObject<Env> {
 
   private readMathCache(): MathCache | null {
     const raw = this.getMeta("mathCache");
-    return raw ? (JSON.parse(raw) as MathCache) : null;
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as MathCache;
+      if (
+        !parsed ||
+        parsed.schemaVersion !== MATH_CACHE_SCHEMA_VERSION ||
+        typeof parsed.revision !== "number" ||
+        !parsed.publicResult ||
+        !Array.isArray(parsed.publicResult.groups) ||
+        parsed.publicResult.groups.some((g) => !Array.isArray(g.statementStats))
+      ) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
   }
 
   private recompute(id: string, now: number): MathCache {
@@ -503,7 +522,12 @@ export class Conversation extends DurableObject<Env> {
       computedAt: now,
       previousK: previousK && previousK >= 2 ? previousK : null,
     });
-    const cache: MathCache = { revision: this.revision(), publicResult, pidPoints };
+    const cache: MathCache = {
+      schemaVersion: MATH_CACHE_SCHEMA_VERSION,
+      revision: this.revision(),
+      publicResult,
+      pidPoints,
+    };
     this.setMeta("mathCache", JSON.stringify(cache));
     this.setMeta("mathComputedAt", String(now));
     this.dirty = false;
@@ -532,7 +556,7 @@ export class Conversation extends DurableObject<Env> {
     now: number,
   ): SensemakingSynthesis {
     const existing = this.readReadySynthesis();
-    if (existing) {
+    if (existing && existing.mathRevision === mathRevision) {
       this.setMeta("synthesis_pending", "");
       return existing;
     }
@@ -611,7 +635,7 @@ export class Conversation extends DurableObject<Env> {
       // 已滿 24 小時：可進行一次每日刷新
     }
 
-    // 2. 檢查失敗退避（若先前失敗，鎖定至隔日 UTC 00:00，避免浪費免費神經元）
+    // 2. 檢查失敗退避（若先前失敗且未過 retryAfter，回傳 unavailable 或舊快取）
     const rawFailure = this.getMeta("synthesis_failure");
     if (rawFailure) {
       try {
@@ -623,7 +647,7 @@ export class Conversation extends DurableObject<Env> {
           return {
             response: {
               status: "unavailable",
-              reason: failure.reason || "AI synthesis is backing off until next UTC reset.",
+              reason: failure.reason || "AI synthesis is temporarily unavailable.",
               retryAfter: failure.retryAfter,
             },
           };

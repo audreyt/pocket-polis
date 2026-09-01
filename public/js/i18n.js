@@ -3,7 +3,7 @@
 const STORAGE_KEY = "polis-serverless:lang";
 
 // key: [zh, en]。{名稱} 為變數插槽。
-const STRINGS = {
+export const STRINGS = {
   "app.loading": ["載入中⋯", "Loading…"],
   "app.sourceLink": ["原始碼", "Source"],
   "app.badUrl": ["網址不正確。", "This link is not valid."],
@@ -72,6 +72,7 @@ const STRINGS = {
   ],
   "r.evidenceQuote": ["引用意見", "Cited statement"],
   "r.clearFilter": ["清除篩選", "Clear filter"],
+  "r.backToAll": ["顯示全部意見", "Show all statements"],
   "r.filterByTheme": ["看此主題意見", "View statements"],
   "r.themesTitle": ["議題分類與核心焦點", "Thematic Directory & Key Issues"],
   "r.themesHint": ["將所有意見依主題歸類，點選主題可查看該焦點下的所有意見與投票率。", "All statements grouped into thematic areas. Click a theme to inspect assigned statements and voting breakdowns."],
@@ -194,7 +195,7 @@ const STRINGS = {
 };
 
 export function currentLang() {
-  const fromQuery = new URLSearchParams(location.search).get("lang");
+  const fromQuery = typeof location !== "undefined" ? new URLSearchParams(location.search).get("lang") : null;
   if (fromQuery === "en" || fromQuery === "zh") {
     try {
       localStorage.setItem(STORAGE_KEY, fromQuery);
@@ -204,12 +205,13 @@ export function currentLang() {
     return fromQuery;
   }
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
     if (stored === "en" || stored === "zh") return stored;
   } catch {
     /* ignore */
   }
-  return (navigator.language || "zh").toLowerCase().startsWith("zh") ? "zh" : "en";
+  const navLang = typeof navigator !== "undefined" && typeof navigator.language === "string" ? navigator.language : "zh";
+  return navLang.toLowerCase().startsWith("zh") ? "zh" : "en";
 }
 
 let lang = currentLang();
