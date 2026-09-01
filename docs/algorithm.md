@@ -83,7 +83,7 @@
 
 ### 2. Pocket Polis 免費額度與架構特色
 
-- **神經元硬契約（不是平均值）**：`@cf/google/gemma-4-26b-a4b-it` 官方費率 `輸入上限 token × 9091 / 1e6 + max_tokens × 27273 / 1e6`。輸入上限 = `utf8_bytes(system)+utf8_bytes(user)+256`，不是字元數，也不是精確 token。每次 `ai.run` 前同步 `tryReserve`；單次生成天花板 **9,000**（低於每日 10,000 免費額）。最終綜整額度先扣留。
+- **神經元硬契約（不是平均值）**：`@cf/google/gemma-4-26b-a4b-it` 官方費率 `輸入上限 token × 9091 / 1e6 + max_tokens × 27273 / 1e6`。輸入上限 = `utf8_bytes(system)+utf8_bytes(user)+256`，不是字元數，也不是精確 token。每次 `ai.run` 前同時做本地 `tryReserve` 與部署級 UTC 日協調器原子預留；本應用日上限 **9,000**（低於每日 10,000 免費額 1,000）。同一 Cloudflare 帳號的其他 Worker 不在此協調器內。對話 DO 在第一次模型呼叫前寫入滾動 24h AI 聲明，Queue 重試不能雙花。最終綜整額度先在本地扣留，實際呼叫前仍向協調器預留。
 - **Queue ≠ 神經元節省**：Cloudflare Queues（`pocket-polis-sensemaking`，`max_batch_size: 1`, `max_retries: 1`）只做耐久與延遲隔離。一則 <64KB 訊息最多 **4 次 Queue 操作**（1 寫 + 2 讀 + 1 刪）。成功路徑 3 次。與神經元分屬不同免費額度。
 - **24 小時新鮮度週期**：成功生成後以 24 小時滾動窗口提供快取（資料變更時標記 `isStale: true`，滿 24 小時背景刷新 `refreshPending: true`）；若生成失敗則退避至隔日 00:00 UTC 重置。確定性 fallback 亦為 `status: "ready"`，同樣受 24h 窗約束，不重複 enqueue。
 - **邊緣快取白名單**：透過 Workers Cache API 提供 3s–300s TTL 之邊緣快取，採用嚴格公開白名單（`/`, `/en`, `/guide`, `/en/guide`, `/c/:id`, `/r/:id`, `/api/health`, `/api/conversations/:id` 及 public statements/anonymous results/synthesis），正則化移除所有查詢字串，排除個人化（`?pid=`）、授權標頭、管理端，並支援 `Cache-Control: no-cache` 強制重新整理直通 DO。

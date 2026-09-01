@@ -31,8 +31,14 @@ describe("wrangler.jsonc", () => {
   it("Durable Object 是唯一資料層，SQLite migration 存在", () => {
     expect(wrangler.durable_objects.bindings).toEqual([
       { name: "CONVERSATION", class_name: "Conversation" },
+      { name: "NEURON_COORDINATOR", class_name: "NeuronCoordinator" },
+    ]);
+    expect(wrangler.env.production.durable_objects.bindings).toEqual([
+      { name: "CONVERSATION", class_name: "Conversation" },
+      { name: "NEURON_COORDINATOR", class_name: "NeuronCoordinator" },
     ]);
     expect(wrangler.migrations[0].new_sqlite_classes).toContain("Conversation");
+    expect(wrangler.migrations[1].new_sqlite_classes).toContain("NeuronCoordinator");
     expect(wrangler.kv_namespaces).toBeUndefined();
     expect(wrangler.d1_databases).toBeUndefined();
     expect(wrangler.r2_buckets).toBeUndefined();
@@ -101,6 +107,9 @@ describe("README", () => {
     expect(readme).not.toMatch(/160k char/);
     expect(readme).toContain("4 Queue operations");
     expect(readme).toMatch(/not neuron savings/);
+    expect(readme).toMatch(/deployment-wide|app-wide/);
+    expect(readme).toContain("rolling 24h");
+    expect(readme).not.toMatch(/account-global|entire Cloudflare account/);
   });
 });
 

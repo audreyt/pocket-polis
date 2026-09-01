@@ -12,8 +12,10 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 import worker, { type SensemakingQueueMessage } from "../src/index";
+import { AI_ATTEMPT_WINDOW_MS, SYNTHESIS_AI_CLAIM_KEY } from "../src/ai-budget";
 import { Conversation } from "../src/conversation";
-import { SENSEMAKING_MODEL } from "../src/sensemaking";
+import { NeuronCoordinator } from "../src/neuron-coordinator";
+import { DETERMINISTIC_MODEL, SENSEMAKING_MODEL } from "../src/sensemaking";
 
 // In-memory mock SQLite storage for DurableObject
 class MockSqlStorage {
@@ -579,6 +581,338 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
     expect(markFailedSpy).toHaveBeenCalledWith("job-missing-queue", expect.any(Number), expect.any(String));
     const data = (await res.json()) as any;
     expect(data.status).toBe("unavailable");
+  });
+});
+
+
+describe("Per-conversation AI claim and deployment coordinator", () => {
+  function convCtx() {
+    const sql = new MockSqlStorage();
+    const ctx = {
+      storage: {
+        sql,
+        transactionSync: (fn: () => void) => fn(),
+      },
+    } as any;
+    return { ctx, sql };
+  }
+
+  function makeCoordinator() {
+    const { ctx } = convCtx();
+    return new NeuronCoordinator(ctx, {} as Env);
+  }
+
+  function seedSynthesisReady(conv: Conversation, ctx: any, now: number) {
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "settings",
+      JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
+    );
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "id", "conv123456");
+    vi.spyOn(conv as any, "getResults").mockResolvedValue({
+      result: {
+        computedAt: 42,
+        k: 2,
+        nParticipantsClustered: 10,
+        nParticipantsTotal: 10,
+        nVotes: 50,
+        statementStats: [],
+        consensus: { agree: [], disagree: [] },
+        groups: [
+          { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
+          { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
+        ],
+      },
+    });
+    vi.spyOn(conv, "publicStatements").mockResolvedValue({
+      statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
+    });
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "synthesis_pending",
+      JSON.stringify({ jobId: "job-1", sourceRevision: 42, startedAt: now }),
+    );
+  }
+
+  function topicAi() {
+    return vi.fn(async (_model: string, payload: { messages: { content: string }[] }) => {
+      const sys = payload.messages[0]?.content ?? "";
+      if (sys.includes("mutually exclusive")) {
+        return {
+          response: JSON.stringify({
+            topics: [
+              { id: "t1", title: "Theme 1", description: "Desc 1" },
+              { id: "t2", title: "Theme 2", description: "Desc 2" },
+              { id: "t3", title: "Theme 3", description: "Desc 3" },
+            ],
+          }),
+        };
+      }
+      if (sys.includes("precise classifier")) {
+        return { response: JSON.stringify({ assignments: [] }) };
+      }
+      return {
+        response: JSON.stringify({
+          overview: { summary: "Sum", citedStatementIds: [1] },
+          commonGround: { keyPoints: [] },
+          groupPortraits: [],
+          tensions: [],
+        }),
+      };
+    });
+  }
+
+  it("writes synthesis_ai_claim before the first mocked ai.run", async () => {
+    const { ctx } = convCtx();
+    const order: string[] = [];
+    const coord = makeCoordinator();
+    const innerReserve = coord.reserve.bind(coord);
+    coord.reserve = async (neurons: number, now: number) => {
+      order.push("reserve");
+      return innerReserve(neurons, now);
+    };
+    const responder = topicAi();
+    const aiRun = vi.fn(async (model: string, payload: { messages: { content: string }[] }) => {
+      const row = ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", SYNTHESIS_AI_CLAIM_KEY).one() as
+        | { value: string }
+        | undefined;
+      expect(row?.value).toBeTruthy();
+      expect(JSON.parse(row!.value).claimedAt).toBe(1000);
+      order.push("ai");
+      return responder(model, payload);
+    });
+    const conv = new Conversation(ctx, {
+      AI: { run: aiRun },
+      NEURON_COORDINATOR: { getByName: () => coord },
+    } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    await conv.processSensemakingJob(42, "job-1", 1000);
+    expect(aiRun.mock.calls.length).toBeGreaterThan(0);
+    expect(order[0]).toBe("reserve");
+    for (let i = 0; i < order.length; i++) {
+      if (order[i] === "ai") expect(order[i - 1]).toBe("reserve");
+    }
+  });
+
+  it("same job retry after a claimed attempt does not call AI again", async () => {
+    const { ctx } = convCtx();
+    const coord = makeCoordinator();
+    const aiRun = topicAi();
+    const conv = new Conversation(ctx, {
+      AI: { run: aiRun },
+      NEURON_COORDINATOR: { getByName: () => coord },
+    } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    await conv.processSensemakingJob(42, "job-1", 1000);
+    const calls = aiRun.mock.calls.length;
+    expect(calls).toBeGreaterThan(0);
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "synthesis_pending",
+      JSON.stringify({ jobId: "job-1", sourceRevision: 42, startedAt: 1000 }),
+    );
+    await conv.processSensemakingJob(42, "job-1", 1500);
+    expect(aiRun.mock.calls.length).toBe(calls);
+  });
+
+  it("a different job and source revision inside 24h does not call AI", async () => {
+    const { ctx } = convCtx();
+    const coord = makeCoordinator();
+    const aiRun = topicAi();
+    const conv = new Conversation(ctx, {
+      AI: { run: aiRun },
+      NEURON_COORDINATOR: { getByName: () => coord },
+    } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    await conv.processSensemakingJob(42, "job-1", 1000);
+    const calls = aiRun.mock.calls.length;
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "synthesis_pending",
+      JSON.stringify({ jobId: "job-2", sourceRevision: 99, startedAt: 2000 }),
+    );
+    await conv.processSensemakingJob(99, "job-2", 2000);
+    expect(aiRun.mock.calls.length).toBe(calls);
+  });
+
+  it("updateSettings does not clear the AI claim window", async () => {
+    const { ctx } = convCtx();
+    const coord = makeCoordinator();
+    const aiRun = topicAi();
+    const token = "admin-token";
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const conv = new Conversation(ctx, {
+      AI: { run: aiRun },
+      NEURON_COORDINATOR: { getByName: () => coord },
+    } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    await conv.processSensemakingJob(42, "job-1", 1000);
+    const claimBefore = ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", SYNTHESIS_AI_CLAIM_KEY).one() as {
+      value: string;
+    };
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "adminTokenHash", hash);
+    const updated = await conv.updateSettings(token, { title: "新標題" });
+    expect(updated.ok).toBe(true);
+    const claimAfter = ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", SYNTHESIS_AI_CLAIM_KEY).one() as {
+      value: string;
+    };
+    expect(claimAfter.value).toBe(claimBefore.value);
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "synthesis_pending",
+      JSON.stringify({ jobId: "job-3", sourceRevision: 42, startedAt: 3000 }),
+    );
+    const calls = aiRun.mock.calls.length;
+    await conv.processSensemakingJob(42, "job-3", 3000);
+    expect(aiRun.mock.calls.length).toBe(calls);
+  });
+
+  it("persisted claim survives a simulated process restart inside 24h", async () => {
+    const { ctx } = convCtx();
+    const aiRun = topicAi();
+    const conv = new Conversation(ctx, {
+      AI: { run: aiRun },
+      NEURON_COORDINATOR: { getByName: () => makeCoordinator() },
+    } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      SYNTHESIS_AI_CLAIM_KEY,
+      JSON.stringify({ claimedAt: 1000 }),
+    );
+    await conv.processSensemakingJob(42, "job-1", 1000 + 60_000);
+    expect(aiRun).not.toHaveBeenCalled();
+    const data = JSON.parse(
+      (ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", "synthesis_data").one() as { value: string }).value,
+    );
+    expect(data.model).toBe(DETERMINISTIC_MODEL);
+    expect(data.status).toBe("ready");
+  });
+
+  it("after >=24h exactly one new AI attempt is allowed", async () => {
+    const { ctx } = convCtx();
+    const coord = makeCoordinator();
+    const aiRun = topicAi();
+    const conv = new Conversation(ctx, {
+      AI: { run: aiRun },
+      NEURON_COORDINATOR: { getByName: () => coord },
+    } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      SYNTHESIS_AI_CLAIM_KEY,
+      JSON.stringify({ claimedAt: 1000 }),
+    );
+    const later = 1000 + AI_ATTEMPT_WINDOW_MS + 1;
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "synthesis_pending",
+      JSON.stringify({ jobId: "job-1", sourceRevision: 42, startedAt: later }),
+    );
+    await conv.processSensemakingJob(42, "job-1", later);
+    expect(aiRun.mock.calls.length).toBeGreaterThan(0);
+    const calls = aiRun.mock.calls.length;
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "synthesis_pending",
+      JSON.stringify({ jobId: "job-4", sourceRevision: 42, startedAt: later + 10 }),
+    );
+    await conv.processSensemakingJob(42, "job-4", later + 10);
+    expect(aiRun.mock.calls.length).toBe(calls);
+  });
+
+  it("missing AI binding persists deterministic ready without unavailable", async () => {
+    const { ctx } = convCtx();
+    const conv = new Conversation(ctx, {} as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    const result = await conv.processSensemakingJob(42, "job-1", 1000);
+    expect(result.ok).toBe(true);
+    const data = JSON.parse(
+      (ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", "synthesis_data").one() as { value: string }).value,
+    );
+    expect(data.status).toBe("ready");
+    expect(data.model).toBe(DETERMINISTIC_MODEL);
+  });
+
+  it("missing coordinator means zero AI calls and a deterministic report", async () => {
+    const { ctx } = convCtx();
+    const aiRun = topicAi();
+    const conv = new Conversation(ctx, { AI: { run: aiRun } } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    await conv.processSensemakingJob(42, "job-1", 1000);
+    expect(aiRun).not.toHaveBeenCalled();
+    const data = JSON.parse(
+      (ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", "synthesis_data").one() as { value: string }).value,
+    );
+    expect(data.model).toBe(DETERMINISTIC_MODEL);
+  });
+
+  it("malformed claim fails closed without AI", async () => {
+    const { ctx } = convCtx();
+    const aiRun = topicAi();
+    const conv = new Conversation(ctx, {
+      AI: { run: aiRun },
+      NEURON_COORDINATOR: { getByName: () => makeCoordinator() },
+    } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", SYNTHESIS_AI_CLAIM_KEY, "{");
+    await conv.processSensemakingJob(42, "job-1", 1000);
+    expect(aiRun).not.toHaveBeenCalled();
+  });
+
+  it("GET/check with an in-window claim does not enqueue", async () => {
+    const { ctx } = convCtx();
+    const conv = new Conversation(ctx, {} as any);
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "settings",
+      JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
+    );
+    vi.spyOn(conv as any, "getResults").mockResolvedValue({
+      result: {
+        computedAt: 42,
+        k: 2,
+        nParticipantsClustered: 10,
+        nParticipantsTotal: 10,
+        nVotes: 50,
+        statementStats: [],
+        consensus: { agree: [], disagree: [] },
+        groups: [
+          { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
+          { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
+        ],
+      },
+    });
+    vi.spyOn(conv, "publicStatements").mockResolvedValue({
+      statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
+    });
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      SYNTHESIS_AI_CLAIM_KEY,
+      JSON.stringify({ claimedAt: 1000 }),
+    );
+    const res = await conv.checkOrStartSynthesis("conv123456", 2000);
+    expect(res.needsEnqueue).toBeUndefined();
+    expect(res.response.status).toBe("ready");
+    if (res.response.status === "ready") {
+      expect(res.response.model).toBe(DETERMINISTIC_MODEL);
+    }
+  });
+
+  it("two conversations share the deployment-wide 9000 cap", async () => {
+    const coord = makeCoordinator();
+    expect(await coord.reserve(5000, 1000)).toBe(true);
+    const { ctx } = convCtx();
+    const aiRun = topicAi();
+    const conv = new Conversation(ctx, {
+      AI: { run: aiRun },
+      NEURON_COORDINATOR: { getByName: () => coord },
+    } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    await coord.reserve(4000, 1000);
+    await conv.processSensemakingJob(42, "job-1", 1000);
+    expect(aiRun).not.toHaveBeenCalled();
   });
 });
 

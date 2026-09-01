@@ -18,8 +18,11 @@
 export const NEURONS_PER_M_INPUT = 9091;
 export const NEURONS_PER_M_OUTPUT = 27273;
 export const FREE_NEURONS_PER_DAY = 10_000;
-/** Per-generation ceiling: headroom below the 10k daily free allocation. */
+/** Per-generation and deployment-wide UTC-day ceiling (1,000 headroom below 10k free). */
 export const GENERATION_NEURON_CEILING = 9_000;
+/** Per-conversation rolling window: at most one AI-backed generateSensemaking. */
+export const AI_ATTEMPT_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const SYNTHESIS_AI_CLAIM_KEY = "synthesis_ai_claim";
 /** Conservative special-token / chat-template overhead (not content bytes). */
 export const CHAT_TEMPLATE_OVERHEAD_TOKENS = 256;
 

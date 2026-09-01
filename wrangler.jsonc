@@ -17,6 +17,10 @@
       {
         "name": "CONVERSATION",
         "class_name": "Conversation"
+      },
+      {
+        "name": "NEURON_COORDINATOR",
+        "class_name": "NeuronCoordinator"
       }
     ]
   },
@@ -43,6 +47,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["Conversation"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["NeuronCoordinator"]
     }
   ],
   "observability": {
@@ -61,6 +69,10 @@
           {
             "name": "CONVERSATION",
             "class_name": "Conversation"
+          },
+          {
+            "name": "NEURON_COORDINATOR",
+            "class_name": "NeuronCoordinator"
           }
         ]
       },

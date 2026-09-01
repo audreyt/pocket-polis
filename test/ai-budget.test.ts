@@ -218,6 +218,7 @@ describe("generateSensemaking 免費額度硬上限", () => {
 
     const res = (await generateSensemaking({
       ai: { run: aiRun } as unknown as Ai,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "國防",
       description: "預算",
@@ -292,6 +293,7 @@ describe("generateSensemaking 免費額度硬上限", () => {
     });
     const res = await generateSensemaking({
       ai: { run: aiRun } as unknown as Ai,
+      reserveGlobal: async () => true,
       lang: "en",
       title: "T",
       description: "D",
@@ -306,11 +308,46 @@ describe("generateSensemaking 免費額度硬上限", () => {
     expect(classifyCalls).toBeLessThanOrEqual(2);
   });
 
+  it("omitted or denying reserveGlobal never calls AI", async () => {
+    const mathResult = clusteredMath();
+    const statements = Array.from({ length: 9 }, (_, i) => ({ sid: i + 1, text: `s${i + 1}` }));
+    const aiRun = vi.fn();
+    const omitted = await generateSensemaking({
+      ai: { run: aiRun } as unknown as Ai,
+      lang: "en",
+      title: "Budget",
+      description: "Desc",
+      mathResult,
+      statements,
+      mathRevision: 1,
+      now: 1,
+    });
+    expect(aiRun).not.toHaveBeenCalled();
+    expect(omitted.status).toBe("ready");
+    if (omitted.status === "ready") expect(omitted.generationMode).toBe("deterministic");
+
+    const denied = await generateSensemaking({
+      ai: { run: aiRun } as unknown as Ai,
+      reserveGlobal: async () => false,
+      lang: "en",
+      title: "Budget",
+      description: "Desc",
+      mathResult,
+      statements,
+      mathRevision: 1,
+      now: 1,
+    });
+    expect(aiRun).not.toHaveBeenCalled();
+    expect(denied.status).toBe("ready");
+    if (denied.status === "ready") expect(denied.generationMode).toBe("deterministic");
+  });
+
   it("deterministic fallback never reports Gemma and covers every statement with valid citations", async () => {
     const mathResult = clusteredMath();
     const statements = Array.from({ length: 9 }, (_, i) => ({ sid: i + 1, text: `s${i + 1}` }));
     const res = await generateSensemaking({
       ai: { run: vi.fn().mockRejectedValue(new Error("nope")) } as unknown as Ai,
+      reserveGlobal: async () => true,
       lang: "en",
       title: "Budget",
       description: "Desc",

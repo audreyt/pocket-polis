@@ -133,8 +133,12 @@ export type SensemakingResponse =
       isStale?: boolean;
     };
 
+export type GlobalNeuronReserve = (neurons: number) => Promise<boolean>;
+
 export interface GenerateSensemakingInput {
   ai: Ai;
+  /** Missing/omitted/denying reserve fails closed (no AI). */
+  reserveGlobal?: GlobalNeuronReserve;
   lang: "zh" | "en";
   title: string;
   description: string;
@@ -275,12 +279,37 @@ export function computeEvidenceBuckets(
   };
 }
 
-// ---- 主入口 ----
+export function generateDeterministicSensemaking(input: {
+  lang: "zh" | "en";
+  title: string;
+  mathResult: MathResult;
+  statements: StatementItem[];
+  mathRevision: number;
+  now: number;
+}): SensemakingSynthesis {
+  const { lang, title, mathResult, statements, mathRevision, now } = input;
+  const statementMap = new Map<number, string>(statements.map((s) => [s.sid, s.text]));
+  const buckets = computeEvidenceBuckets(
+    mathResult,
+    statements.map((s) => s.sid),
+  );
+  return buildDeterministicSynthesis(
+    lang,
+    title,
+    mathResult,
+    statements,
+    statementMap,
+    buckets,
+    mathRevision,
+    now,
+  );
+}
 
 export async function generateSensemaking(
   input: GenerateSensemakingInput,
 ): Promise<SensemakingResponse> {
   const { ai, lang, title, description, mathResult, statements, mathRevision, now } = input;
+  const reserveGlobal: GlobalNeuronReserve = input.reserveGlobal ?? (async () => false);
 
   if (
     mathResult.nParticipantsClustered < MIN_PARTICIPANTS_FOR_SYNTHESIS ||
@@ -308,7 +337,7 @@ export async function generateSensemaking(
 
   const ledger = new NeuronLedger();
   const fallback = () =>
-    buildDeterministicSynthesis(lang, title, mathResult, statements, statementMap, buckets, mathRevision, now);
+    generateDeterministicSensemaking({ lang, title, mathResult, statements, mathRevision, now });
 
   try {
     // Hold synthesis neurons first so categorize retries cannot starve the final phase.
@@ -317,13 +346,13 @@ export async function generateSensemaking(
     }
 
     // 階段一：主題發現（max_tokens = DISCOVER_MAX_OUTPUT_TOKENS，UTF-8 byte cap）
-    const topics = await discoverTopics(ai, lang, title, description, statements, ledger);
+    const topics = await discoverTopics(ai, lang, title, description, statements, ledger, reserveGlobal);
     if (!topics || topics.length === 0) {
       return fallback();
     }
 
     // 階段二：陳述歸類（每批 50 筆，max_tokens = CATEGORIZE_MAX_OUTPUT_TOKENS）
-    const themes = await categorizeStatements(ai, lang, topics, statements, ledger);
+    const themes = await categorizeStatements(ai, lang, topics, statements, ledger, reserveGlobal);
     if (!themes || themes.length === 0) {
       return fallback();
     }
@@ -342,6 +371,7 @@ export async function generateSensemaking(
       mathRevision,
       now,
       ledger,
+      reserveGlobal,
     );
     if (!synthesis) {
       return fallback();
@@ -362,6 +392,7 @@ async function discoverTopics(
   description: string,
   statements: StatementItem[],
   ledger: NeuronLedger,
+  reserveGlobal: GlobalNeuronReserve,
 ): Promise<SensemakingTopic[] | null> {
   const count = statements.length;
   const targetMin = Math.min(3, count);
@@ -401,7 +432,7 @@ Description: ${sanitizeUntrusted(description)}
   const promptStatements = formatStatementsUtf8(statements, Math.max(0, bodyBudget));
   const userPrompt = `${prefix}${promptStatements}${suffix}`;
 
-  const raw = await runAiModel(ai, systemPrompt, userPrompt, DISCOVER_MAX_OUTPUT_TOKENS, ledger);
+  const raw = await runAiModel(ai, systemPrompt, userPrompt, DISCOVER_MAX_OUTPUT_TOKENS, ledger, reserveGlobal);
   if (raw === null) return null;
   const parsed = parseJsonSafe<{ topics?: unknown }>(raw);
   if (!parsed || !Array.isArray(parsed.topics)) return null;
@@ -450,6 +481,7 @@ async function categorizeStatements(
   topics: SensemakingTopic[],
   statements: StatementItem[],
   ledger: NeuronLedger,
+  reserveGlobal: GlobalNeuronReserve,
 ): Promise<SensemakingTheme[] | null> {
   const topicIdSet = new Set(topics.map((t) => t.id));
   const allAssignments = new Map<number, { primary: string; secondary: string | null }>();
@@ -462,7 +494,7 @@ async function categorizeStatements(
 
   // 以有限並行（上限 3）跑批次分類
   await mapConcurrent(batches, CATEGORIZE_CONCURRENCY, async (batch) => {
-    const batchAssignments = await runCategorizeBatch(ai, lang, topics, batch, ledger);
+    const batchAssignments = await runCategorizeBatch(ai, lang, topics, batch, ledger, reserveGlobal);
     for (const [sid, val] of batchAssignments.entries()) {
       if (topicIdSet.has(val.primary)) {
         allAssignments.set(sid, val);
@@ -480,7 +512,7 @@ async function categorizeStatements(
       retryBatches.push(missingStatements.slice(i, i + CATEGORIZE_BATCH_SIZE));
     }
     await mapConcurrent(retryBatches, CATEGORIZE_CONCURRENCY, async (batch) => {
-      const retryAssignments = await runCategorizeBatch(ai, lang, topics, batch, ledger);
+      const retryAssignments = await runCategorizeBatch(ai, lang, topics, batch, ledger, reserveGlobal);
       for (const [sid, val] of retryAssignments.entries()) {
         if (topicIdSet.has(val.primary)) {
           allAssignments.set(sid, val);
@@ -661,6 +693,7 @@ async function runCategorizeBatch(
   topics: SensemakingTopic[],
   batch: StatementItem[],
   ledger: NeuronLedger,
+  reserveGlobal: GlobalNeuronReserve,
 ): Promise<Map<number, { primary: string; secondary: string | null }>> {
   const result = new Map<number, { primary: string; secondary: string | null }>();
   const validBatchSids = new Set(batch.map((s) => s.sid));
@@ -689,7 +722,7 @@ Statements to Categorize:
   const userPrompt = `${prefix}${statementsList}`;
 
   try {
-    const raw = await runAiModel(ai, systemPrompt, userPrompt, CATEGORIZE_MAX_OUTPUT_TOKENS, ledger);
+    const raw = await runAiModel(ai, systemPrompt, userPrompt, CATEGORIZE_MAX_OUTPUT_TOKENS, ledger, reserveGlobal);
     if (raw === null) return result;
     const parsed = parseJsonSafe<unknown>(raw);
     const assignments = extractAssignmentsArray(parsed);
@@ -771,6 +804,7 @@ async function synthesizeDeliberation(
   mathRevision: number,
   now: number,
   ledger: NeuronLedger,
+  reserveGlobal: GlobalNeuronReserve,
 ): Promise<SensemakingSynthesis | null> {
   const {
     consensusAgreeSids,
@@ -975,7 +1009,7 @@ ${groupPortraitsPrompt}`;
 
   // Synthesis neurons were pre-reserved (hold); do not reserve again.
   void ledger;
-  const raw = await runAiModel(ai, systemPrompt, userPrompt, SYNTHESIS_MAX_OUTPUT_TOKENS, ledger, true);
+  const raw = await runAiModel(ai, systemPrompt, userPrompt, SYNTHESIS_MAX_OUTPUT_TOKENS, ledger, reserveGlobal, true);
   if (raw === null) return null;
   const parsed = parseJsonSafe<Record<string, unknown>>(raw);
   const p = parsed ?? {};
@@ -1483,12 +1517,20 @@ async function runAiModel(
   userPrompt: string,
   maxTokens: number,
   ledger: NeuronLedger,
-  skipReserve = false,
+  reserveGlobal: GlobalNeuronReserve,
+  skipLocalReserve = false,
 ): Promise<string | null> {
-  if (!skipReserve) {
-    const cost = neuronsForPrompts(systemPrompt, userPrompt, maxTokens);
+  const cost = neuronsForPrompts(systemPrompt, userPrompt, maxTokens);
+  if (!skipLocalReserve) {
     if (!ledger.tryReserve(cost)) return null;
   }
+  let granted = false;
+  try {
+    granted = await reserveGlobal(cost);
+  } catch {
+    return null;
+  }
+  if (!granted) return null;
   const payload: Record<string, unknown> = {
     messages: [
       { role: "system", content: systemPrompt },

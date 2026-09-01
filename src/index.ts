@@ -2,6 +2,7 @@ import type { Conversation, ConversationSettings } from "./conversation";
 import type { VoteValue } from "./math/types";
 
 export { Conversation } from "./conversation";
+export { NeuronCoordinator } from "./neuron-coordinator";
 
 const CONVERSATION_ID_PATTERN = /^[a-z0-9]{10}$/;
 const PID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

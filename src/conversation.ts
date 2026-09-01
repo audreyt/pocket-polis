@@ -3,6 +3,12 @@ import { computeMath } from "./math/pipeline";
 import { csvEscape, formatCommentsCsv } from "./export";
 import type { MathResult, OpinionPoint, VoteRow, VoteValue } from "./math/types";
 import {
+  AI_ATTEMPT_WINDOW_MS,
+  SYNTHESIS_AI_CLAIM_KEY,
+} from "./ai-budget";
+import { NEURON_COORDINATOR_INSTANCE } from "./neuron-coordinator";
+import {
+  generateDeterministicSensemaking,
   generateSensemaking,
   inferSourceLanguage,
   type SensemakingResponse,
@@ -81,9 +87,26 @@ export interface ProcessSensemakingResult {
   retryable?: boolean;
 }
 
-function getNextUtcMidnight(now: number): number {
-  const d = new Date(now);
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0);
+function parseAiClaim(raw: string | null): { claimedAt: number } | "absent" | "malformed" {
+  if (!raw) return "absent";
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return "malformed";
+    const claimedAt = (parsed as Record<string, unknown>).claimedAt;
+    if (typeof claimedAt !== "number" || !Number.isFinite(claimedAt) || claimedAt <= 0) {
+      return "malformed";
+    }
+    return { claimedAt };
+  } catch {
+    return "malformed";
+  }
+}
+
+function aiClaimBlocksAttempt(raw: string | null, now: number): boolean {
+  const claim = parseAiClaim(raw);
+  if (claim === "malformed") return true;
+  if (claim === "absent") return false;
+  return now - claim.claimedAt < AI_ATTEMPT_WINDOW_MS;
 }
 interface MathCache {
   revision: number;
@@ -489,6 +512,43 @@ export class Conversation extends DurableObject<Env> {
 
   // ---- AI Sensemaking ----
 
+  private readReadySynthesis(): SensemakingSynthesis | null {
+    const rawCache = this.getMeta("synthesis_data");
+    if (!rawCache) return null;
+    try {
+      const cached = JSON.parse(rawCache) as SensemakingSynthesis;
+      return cached.status === "ready" ? cached : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private persistDeterministicReady(
+    lang: "zh" | "en",
+    title: string,
+    mathResult: MathResult,
+    statements: { sid: number; text: string }[],
+    mathRevision: number,
+    now: number,
+  ): SensemakingSynthesis {
+    const existing = this.readReadySynthesis();
+    if (existing) {
+      this.setMeta("synthesis_pending", "");
+      return existing;
+    }
+    const det = generateDeterministicSensemaking({
+      lang,
+      title,
+      mathResult,
+      statements,
+      mathRevision,
+      now,
+    });
+    this.setMeta("synthesis_data", JSON.stringify(det));
+    this.setMeta("synthesis_pending", "");
+    this.setMeta("synthesis_failure", "");
+    return det;
+  }
 
   async checkOrStartSynthesis(conversationId: string, now: number): Promise<CheckSynthesisResult> {
     const settings = this.settings();
@@ -597,6 +657,27 @@ export class Conversation extends DurableObject<Env> {
       }
       this.setMeta("synthesis_pending", "");
     }
+
+    const claimRaw = this.getMeta(SYNTHESIS_AI_CLAIM_KEY);
+    if (parseAiClaim(claimRaw) === "malformed") {
+      this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now }));
+    }
+    if (aiClaimBlocksAttempt(this.getMeta(SYNTHESIS_AI_CLAIM_KEY), now)) {
+      if (cached && cached.status === "ready") {
+        return { response: { ...cached, isStale: cached.mathRevision !== currentRevision } };
+      }
+      const lang = inferSourceLanguage(settings.title, settings.description, statements);
+      const det = this.persistDeterministicReady(
+        lang,
+        settings.title,
+        math.result,
+        statements,
+        currentRevision,
+        now,
+      );
+      return { response: det };
+    }
+
     // 4. 發起新生成任務
     const jobId = crypto.randomUUID();
     this.setMeta(
@@ -693,25 +774,46 @@ export class Conversation extends DurableObject<Env> {
       return { ok: true };
     }
 
-    if (!this.env.AI) {
-      const nextUtc = getNextUtcMidnight(now);
-      this.setMeta("synthesis_pending", "");
-      this.setMeta(
-        "synthesis_failure",
-        JSON.stringify({
-          failedAt: now,
-          retryAfter: nextUtc,
-          reason: "Workers AI binding is not configured.",
-        }),
+    const inferredLang = inferSourceLanguage(settings.title, settings.description, statements);
+    const currentRev = math.result.computedAt;
+    const finishDeterministic = (): ProcessSensemakingResult => {
+      this.persistDeterministicReady(
+        inferredLang,
+        settings.title,
+        math.result,
+        statements,
+        currentRev,
+        now,
       );
-      return { ok: false, retryable: false };
+      return { ok: true };
+    };
+
+    const claimRaw = this.getMeta(SYNTHESIS_AI_CLAIM_KEY);
+    if (parseAiClaim(claimRaw) === "malformed") {
+      this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now }));
+      return finishDeterministic();
+    }
+    if (aiClaimBlocksAttempt(claimRaw, now)) {
+      return finishDeterministic();
     }
 
-    const inferredLang = inferSourceLanguage(settings.title, settings.description, statements);
+    const coordinatorNs = this.env.NEURON_COORDINATOR;
+    if (!this.env.AI || !coordinatorNs) {
+      return finishDeterministic();
+    }
+
+    this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now }));
+
     try {
-      const currentRev = math.result.computedAt;
       const response = await generateSensemaking({
         ai: this.env.AI,
+        reserveGlobal: async (neurons: number) => {
+          try {
+            return await coordinatorNs.getByName(NEURON_COORDINATOR_INSTANCE).reserve(neurons, now);
+          } catch {
+            return false;
+          }
+        },
         lang: inferredLang,
         title: settings.title,
         description: settings.description,
@@ -733,38 +835,10 @@ export class Conversation extends DurableObject<Env> {
         return { ok: true };
       }
       console.error("AI synthesis unavailable:", response.status === "unavailable" ? response.reason : response);
-      const nextUtc = getNextUtcMidnight(now);
-      this.setMeta("synthesis_pending", "");
-      const publicReason =
-        inferredLang === "en"
-          ? "AI synthesis is temporarily unavailable."
-          : "AI 審議綜整暫時無法提供。";
-      this.setMeta(
-        "synthesis_failure",
-        JSON.stringify({
-          failedAt: now,
-          retryAfter: nextUtc,
-          reason: publicReason,
-        }),
-      );
-      return { ok: false, retryable: false };
+      return finishDeterministic();
     } catch (error) {
       console.error("AI synthesis job error:", error);
-      const nextUtc = getNextUtcMidnight(now);
-      this.setMeta("synthesis_pending", "");
-      const publicReason =
-        inferredLang === "en"
-          ? "AI synthesis is temporarily unavailable."
-          : "AI 審議綜整暫時無法提供。";
-      this.setMeta(
-        "synthesis_failure",
-        JSON.stringify({
-          failedAt: now,
-          retryAfter: nextUtc,
-          reason: publicReason,
-        }),
-      );
-      return { ok: false, retryable: false };
+      return finishDeterministic();
     }
   }
 

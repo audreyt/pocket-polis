@@ -89,6 +89,7 @@ describe("generateSensemaking 門檻與防護", () => {
 
     const res = await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "測試討論",
       description: "測試說明",
@@ -216,6 +217,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
 
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "國防預算討論",
       description: "探討預算分配",
@@ -303,6 +305,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "en",
       title: "Title",
       description: "Desc",
@@ -366,6 +369,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "Title",
       description: "Desc",
@@ -434,6 +438,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "人工智慧監管討論",
       description: "探討規範架構",
@@ -504,6 +509,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "人工智慧監管討論",
       description: "探討規範架構",
@@ -582,6 +588,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "Title",
       description: "Desc",
@@ -671,6 +678,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "Title",
       description: "Desc",
@@ -740,6 +748,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "Title",
       description: "Desc",
@@ -807,6 +816,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "zh",
       title: "Title",
       description: "Desc",
@@ -864,6 +874,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "en",
       title: "Defense budget",
       description: "Simulated referendum",
@@ -927,6 +938,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     const mockAi = { run: aiRun } as unknown as Ai;
     const res = (await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "en",
       title: "Title",
       description: "Desc",
@@ -953,6 +965,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
 
     const res = await generateSensemaking({
       ai: mockAi,
+      reserveGlobal: async () => true,
       lang: "en",
       title: "Title",
       description: "Desc",
