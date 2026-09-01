@@ -1424,11 +1424,6 @@ export function buildDeterministicSynthesis(
     }
   }
 
-  const overviewCite = keyPoints[0]?.citedStatementIds[0];
-  const overviewCitations = overviewCite !== undefined && consensusAgreeSids.has(overviewCite) || (overviewCite !== undefined && consensusDisagreeSids.has(overviewCite))
-    ? [overviewCite!]
-    : [];
-
   return {
     version: "v1",
     status: "ready",

@@ -68,7 +68,7 @@
 1. **主題發現（Topic Discovery）**：
    - 以確定性穩定順序輸入陳述。Prompt 以 UTF-8 位元組封頂（`DISCOVERY_PROMPT_MAX_BYTES = 240_000`），所有陳述 ID 都會保留，正文在 UTF-8 邊界截斷。模型歸納 3–7 個語意互斥主題（保留 `other` ID 避免衝突）。`max_tokens: 2048`。
 2. **陳述歸類（Categorization）**：
-   - 以 50 筆為一批次進行有限並行分類（並行上限 3），`max_tokens: 1024`。每批 Prompt ≤ 32,000 UTF-8 bytes。
+   - 以 50 筆為一批次進行有限並行分類（並行上限 3），`max_tokens: 1536`。每批 Prompt ≤ 32,000 UTF-8 bytes。
    - 支援主要主題與選填次要主題，去重後之聯集計入 `theme.statementIds`。未歸類成功者在額度仍夠時重試 1 次，仍遺漏者確定性指派至 `other`。
 3. **群體感知證據池（Evidence Buckets）**：
    - **共識候選集**：交集數學管線方向與 Jigsaw `SummaryStats.minCommonGroundProb = 0.60` 規範（每群偽機率 $(succ+1)/(seen+2) \ge 0.60$；零觀測值為 0.5 自動 fail closed）。送入 Prompt 前依跨群 min-p 排序，上限 24 筆。

@@ -382,6 +382,107 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
     }
     expect(firstRes.needsEnqueue?.jobId).toBeDefined();
     expect(firstRes.needsEnqueue?.sourceRevision).toBe(2000);
+    const thirdRes = await conv.checkOrStartSynthesis("conv123456", now + 6000);
+    expect(thirdRes.needsEnqueue).toBeUndefined();
+    expect(thirdRes.response.status).toBe("ready");
+  });
+
+  it("same sourceRevision pending GET/check exposes needsEnqueue only once via persisted jobId", async () => {
+    const ctx = {
+      storage: {
+        sql: new MockSqlStorage(),
+        transactionSync: (fn: () => void) => fn(),
+      },
+    } as any;
+
+    const conv = new Conversation(ctx, {} as any);
+    const now = 1000;
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "settings",
+      JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
+    );
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "id", "conv123456");
+
+    vi.spyOn(conv as any, "getResults").mockResolvedValue({
+      result: { computedAt: 42, nParticipantsClustered: 10, groups: [{}, {}], nParticipantsTotal: 10, nVotes: 50 },
+    });
+    vi.spyOn(conv, "publicStatements").mockResolvedValue({
+      statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
+    });
+
+    const first = await conv.checkOrStartSynthesis("conv123456", now);
+    expect(first.response.status).toBe("pending");
+    expect(first.needsEnqueue).toBeDefined();
+    expect(first.needsEnqueue?.jobId).toBeDefined();
+    expect(first.needsEnqueue?.sourceRevision).toBe(42);
+    expect(first.needsEnqueue?.conversationId).toBe("conv123456");
+    if (first.response.status === "pending") {
+      expect(first.response.jobId).toBe(first.needsEnqueue?.jobId);
+    }
+
+    const second = await conv.checkOrStartSynthesis("conv123456", now + 1000);
+    expect(second.needsEnqueue).toBeUndefined();
+    expect(second.response.status).toBe("pending");
+    if (second.response.status === "pending") {
+      expect(second.response.jobId).toBe(first.needsEnqueue?.jobId);
+    }
+
+    const third = await conv.checkOrStartSynthesis("conv123456", now + 2000);
+    expect(third.needsEnqueue).toBeUndefined();
+    if (third.response.status === "pending") {
+      expect(third.response.jobId).toBe(first.needsEnqueue?.jobId);
+    }
+  });
+
+  it("repeated GET /synthesis for the same revision sends the queue once", async () => {
+    const ctx = {
+      storage: {
+        sql: new MockSqlStorage(),
+        transactionSync: (fn: () => void) => fn(),
+      },
+    } as any;
+
+    const conv = new Conversation(ctx, {} as any);
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "settings",
+      JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
+    );
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "id", "conv123456");
+
+    vi.spyOn(conv as any, "getResults").mockResolvedValue({
+      result: { computedAt: 42, nParticipantsClustered: 10, groups: [{}, {}], nParticipantsTotal: 10, nVotes: 50 },
+    });
+    vi.spyOn(conv, "publicStatements").mockResolvedValue({
+      statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
+    });
+    vi.spyOn(conv, "isConversation").mockResolvedValue(true);
+
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = {
+      CONVERSATION: { getByName: vi.fn().mockReturnValue(conv) },
+      SENSEMAKING_QUEUE: { send },
+    } as any;
+    const execCtx = { waitUntil: (p: Promise<unknown>) => p } as any;
+    const req = new Request("https://polis.tw/api/conversations/conv123456/synthesis", {
+      headers: { "Cache-Control": "no-cache" },
+    });
+
+    const res1 = await worker.fetch(req, env, execCtx);
+    const res2 = await worker.fetch(req, env, execCtx);
+    expect(send).toHaveBeenCalledTimes(1);
+    const body1 = (await res1.json()) as { status: string; jobId?: string };
+    const body2 = (await res2.json()) as { status: string; jobId?: string };
+    expect(body1.status).toBe("pending");
+    expect(body2.status).toBe("pending");
+    expect(body1.jobId).toBeDefined();
+    expect(body2.jobId).toBe(body1.jobId);
+    expect(send.mock.calls[0]![0]).toEqual({
+      conversationId: "conv123456",
+      sourceRevision: 42,
+      jobId: body1.jobId,
+    });
   });
 
   it("meta revision 未變但 math.result.computedAt 改變時（滿 24h）能正確判定 stale 並觸發 enqueue", async () => {

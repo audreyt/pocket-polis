@@ -25,7 +25,8 @@ export const CHAT_TEMPLATE_OVERHEAD_TOKENS = 256;
 
 /** Smallest output ceilings that can represent the validated JSON schemas. */
 export const DISCOVER_MAX_OUTPUT_TOKENS = 2048;
-export const CATEGORIZE_MAX_OUTPUT_TOKENS = 1024;
+/** 50-record JSON {sid, primaryTopicId, secondaryTopicId}. 1024 is not proven against Gemma. */
+export const CATEGORIZE_MAX_OUTPUT_TOKENS = 1536;
 export const SYNTHESIS_MAX_OUTPUT_TOKENS = 4096;
 
 /**
@@ -73,18 +74,26 @@ export function truncateUtf8(text: string, maxBytes: number): string {
 
 /**
  * Include every statement ID. Truncate each statement's text so the joined
- * payload is ≤ maxBytes. IDs are never dropped.
+ * payload is ≤ maxBytes. IDs are never dropped. Throws if even the ID-only
+ * payload cannot fit — callers must not send an over-budget prompt.
  */
 export function formatStatementsUtf8(
   statements: { sid: number; text: string }[],
   maxBytes: number,
 ): string {
-  if (statements.length === 0 || maxBytes <= 0) return "";
+  if (statements.length === 0) return "";
+  const idOnly = statements.map((s) => `[#${s.sid}]`).join("\n");
+  const idOnlyBytes = utf8ByteLength(idOnly);
+  if (idOnlyBytes > maxBytes) {
+    throw new Error(
+      `formatStatementsUtf8: ${statements.length} statement IDs require ${idOnlyBytes} bytes which exceeds cap ${maxBytes}`,
+    );
+  }
   const headers = statements.map((s) => `[#${s.sid}] `);
   const newlineBytes = statements.length > 1 ? utf8ByteLength("\n") * (statements.length - 1) : 0;
   const headerBytes = headers.reduce((n, h) => n + utf8ByteLength(h), 0) + newlineBytes;
-  if (headerBytes >= maxBytes) {
-    return statements.map((s) => `[#${s.sid}]`).join("\n");
+  if (headerBytes > maxBytes) {
+    return idOnly;
   }
   const per = Math.floor((maxBytes - headerBytes) / statements.length);
   return statements.map((s, i) => headers[i]! + (per > 0 ? truncateUtf8(s.text, per) : "")).join("\n");

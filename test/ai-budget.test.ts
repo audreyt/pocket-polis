@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   CATEGORIZE_BATCH_PROMPT_MAX_BYTES,
+  CATEGORIZE_BATCH_SIZE,
   CATEGORIZE_MAX_OUTPUT_TOKENS,
   CHAT_TEMPLATE_OVERHEAD_TOKENS,
   DISCOVER_MAX_OUTPUT_TOKENS,
@@ -19,6 +21,7 @@ import {
   QUEUE_OPS_UPPER_BOUND_ONE_REVISION,
   SYNTHESIS_MAX_OUTPUT_TOKENS,
   SYNTHESIS_PROMPT_MAX_BYTES,
+  synthesisPhaseHoldNeurons,
   truncateUtf8,
   utf8ByteLength,
 } from "../src/ai-budget";
@@ -78,6 +81,42 @@ describe("UTF-8 byte bound (not JS string.length)", () => {
     expect(utf8ByteLength(out)).toBeLessThanOrEqual(400);
   });
 
+  it("fails closed when even statement IDs cannot fit the byte cap", () => {
+    const statements = Array.from({ length: 20 }, (_, i) => ({ sid: i + 1, text: "x" }));
+    expect(() => formatStatementsUtf8(statements, 10)).toThrow(/formatStatementsUtf8/);
+    expect(() => formatStatementsUtf8([{ sid: 1, text: "hello" }], 0)).toThrow(/formatStatementsUtf8/);
+  });
+
+  it("returns ID-only form when spaced headers overflow but compact IDs fit", () => {
+    const statements = [
+      { sid: 1, text: "aaaa" },
+      { sid: 2, text: "bbbb" },
+    ];
+    const idOnly = "[#1]\n[#2]";
+    expect(utf8ByteLength(idOnly)).toBe(9);
+    const out = formatStatementsUtf8(statements, 10);
+    expect(out).toBe(idOnly);
+    expect(utf8ByteLength(out)).toBeLessThanOrEqual(10);
+    expect(out).toContain("[#1]");
+    expect(out).toContain("[#2]");
+  });
+
+  it("configured discovery and categorize caps still fit all 800 IDs", () => {
+    const statements = Array.from({ length: 800 }, (_, i) => ({ sid: i + 1, text: "測".repeat(280) }));
+    const discovery = formatStatementsUtf8(statements, DISCOVERY_PROMPT_MAX_BYTES);
+    for (let i = 1; i <= 800; i++) {
+      expect(discovery).toContain(`[#${i}]`);
+    }
+    expect(utf8ByteLength(discovery)).toBeLessThanOrEqual(DISCOVERY_PROMPT_MAX_BYTES);
+
+    const batch = statements.slice(0, CATEGORIZE_BATCH_SIZE);
+    const cat = formatStatementsUtf8(batch, CATEGORIZE_BATCH_PROMPT_MAX_BYTES);
+    for (const s of batch) {
+      expect(cat).toContain(`[#${s.sid}]`);
+    }
+    expect(utf8ByteLength(cat)).toBeLessThanOrEqual(CATEGORIZE_BATCH_PROMPT_MAX_BYTES);
+  });
+
   it("inputTokenUpperBound uses UTF-8 bytes plus template overhead, not char length", () => {
     const cjk = "測".repeat(10);
     expect(inputTokenUpperBound(cjk, "")).toBe(30 + CHAT_TEMPLATE_OVERHEAD_TOKENS);
@@ -96,8 +135,24 @@ describe("NeuronLedger concurrent reservation", () => {
 });
 
 describe("Queue op bound is not neurons", () => {
-  it("one revision <64KB max_retries=1 is 4 ops", () => {
-    expect(QUEUE_MAX_RETRIES).toBe(1);
+  it("one revision <64KB max_retries comes from wrangler.jsonc, not a copied constant", () => {
+    const wranglerText = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+    const wrangler = JSON.parse(
+      wranglerText
+        .split("\n")
+        .filter((line) => !/^\s*\/\//.test(line))
+        .join("\n"),
+    ) as {
+      queues: { consumers: { max_retries: number }[] };
+      env: { production: { queues: { consumers: { max_retries: number }[] } } };
+    };
+    const topRetries = wrangler.queues.consumers[0]!.max_retries;
+    const prodRetries = wrangler.env.production.queues.consumers[0]!.max_retries;
+    expect(topRetries).toBe(1);
+    expect(prodRetries).toBe(1);
+    expect(QUEUE_MAX_RETRIES).toBe(topRetries);
+    expect(QUEUE_MAX_RETRIES).toBe(prodRetries);
+    expect(QUEUE_OPS_UPPER_BOUND_ONE_REVISION).toBe(1 + (1 + topRetries) + 1);
     expect(QUEUE_OPS_UPPER_BOUND_ONE_REVISION).toBe(4);
     expect(QUEUE_OPS_UPPER_BOUND_ONE_REVISION).not.toBe(GENERATION_NEURON_CEILING);
   });
@@ -117,17 +172,21 @@ describe("evidence caps", () => {
 });
 
 describe("generateSensemaking 免費額度硬上限", () => {
-  it("800×280-byte multibyte statements never cross the 9000 neuron ceiling", async () => {
+  it("800×280 CJK statements never cross the 9000 neuron ceiling", async () => {
     const mathResult = clusteredMath();
-    const glyph = "測"; // 3 bytes
-    const text = glyph.repeat(Math.floor(280 / 3)); // 279 bytes
-    expect(utf8ByteLength(text)).toBeLessThanOrEqual(280);
+    const glyph = "測";
+    expect(utf8ByteLength(glyph)).toBe(3);
+    const text = glyph.repeat(280);
+    expect(text.length).toBe(280);
+    expect(utf8ByteLength(text)).toBe(840);
+
     const statements = Array.from({ length: 800 }, (_, i) => ({ sid: i + 1, text }));
 
     const calls: { messages: { content: string }[]; max_tokens: number }[] = [];
     const aiRun = vi.fn(async (_model: string, payload: { messages: { content: string }[]; max_tokens: number }) => {
       calls.push(payload);
       const sys = payload.messages[0]?.content ?? "";
+      const user = payload.messages[1]?.content ?? "";
       if (sys.includes("mutually exclusive")) {
         return {
           response: JSON.stringify({
@@ -140,7 +199,12 @@ describe("generateSensemaking 免費額度硬上限", () => {
         };
       }
       if (sys.includes("precise classifier")) {
-        return { response: JSON.stringify({ assignments: [] }) };
+        const sids = [...user.matchAll(/\[#(\d+)\]/g)].map((m) => Number(m[1]));
+        return {
+          response: JSON.stringify({
+            assignments: sids.map((sid) => ({ sid, primaryTopicId: "t1", secondaryTopicId: null })),
+          }),
+        };
       }
       return {
         response: JSON.stringify({
@@ -164,9 +228,13 @@ describe("generateSensemaking 免費額度硬上限", () => {
     })) as SensemakingResponse;
 
     expect(res.status).toBe("ready");
-    const spentOnCalls = calls.reduce((n, p) => n + payloadNeurons(p), 0);
-    expect(spentOnCalls).toBeLessThanOrEqual(GENERATION_NEURON_CEILING);
 
+    const discoverCalls = calls.filter((p) => (p.messages[0]?.content ?? "").includes("mutually exclusive"));
+    const categorizeCalls = calls.filter((p) => (p.messages[0]?.content ?? "").includes("precise classifier"));
+    expect(discoverCalls).toHaveLength(1);
+    expect(categorizeCalls).toHaveLength(Math.ceil(800 / CATEGORIZE_BATCH_SIZE));
+
+    let reserved = synthesisPhaseHoldNeurons();
     for (const p of calls) {
       const sys = p.messages[0]?.content ?? "";
       const user = p.messages[1]?.content ?? "";
@@ -175,14 +243,17 @@ describe("generateSensemaking 免費額度硬上限", () => {
       if (sys.includes("mutually exclusive")) {
         expect(p.max_tokens).toBe(DISCOVER_MAX_OUTPUT_TOKENS);
         expect(bytes).toBeLessThanOrEqual(DISCOVERY_PROMPT_MAX_BYTES);
+        reserved += payloadNeurons(p);
       } else if (sys.includes("precise classifier")) {
         expect(p.max_tokens).toBe(CATEGORIZE_MAX_OUTPUT_TOKENS);
         expect(bytes).toBeLessThanOrEqual(CATEGORIZE_BATCH_PROMPT_MAX_BYTES);
+        reserved += payloadNeurons(p);
       } else {
         expect(p.max_tokens).toBe(SYNTHESIS_MAX_OUTPUT_TOKENS);
         expect(bytes).toBeLessThanOrEqual(SYNTHESIS_PROMPT_MAX_BYTES);
       }
     }
+    expect(reserved).toBeLessThanOrEqual(GENERATION_NEURON_CEILING);
   });
 
   it("optional categorize retries stop when the ledger is exhausted", async () => {
@@ -274,7 +345,25 @@ describe("official neuron formula constants", () => {
     expect(NEURONS_PER_M_OUTPUT).toBe(27273);
     expect(GENERATION_NEURON_CEILING).toBe(9000);
     expect(DISCOVER_MAX_OUTPUT_TOKENS).toBe(2048);
-    expect(CATEGORIZE_MAX_OUTPUT_TOKENS).toBe(1024);
+    expect(CATEGORIZE_MAX_OUTPUT_TOKENS).toBe(1536);
     expect(SYNTHESIS_MAX_OUTPUT_TOKENS).toBe(4096);
+  });
+
+  it("16-batch first pass at 1536 still fits under the 9000 ceiling", () => {
+    const batches = Math.ceil(800 / CATEGORIZE_BATCH_SIZE);
+    expect(batches).toBe(16);
+    const discovery = neuronsForCall(
+      DISCOVERY_PROMPT_MAX_BYTES + CHAT_TEMPLATE_OVERHEAD_TOKENS,
+      DISCOVER_MAX_OUTPUT_TOKENS,
+    );
+    const categorize = neuronsForCall(
+      CATEGORIZE_BATCH_PROMPT_MAX_BYTES + CHAT_TEMPLATE_OVERHEAD_TOKENS,
+      CATEGORIZE_MAX_OUTPUT_TOKENS,
+    );
+    const synthesis = synthesisPhaseHoldNeurons();
+    const firstPass = discovery + batches * categorize + synthesis;
+    expect(firstPass).toBeLessThan(GENERATION_NEURON_CEILING);
+    expect(GENERATION_NEURON_CEILING - firstPass).toBeGreaterThan(categorize);
+    expect(GENERATION_NEURON_CEILING - firstPass).toBeLessThan(3 * categorize);
   });
 });
