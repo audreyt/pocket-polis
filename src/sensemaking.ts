@@ -1456,7 +1456,8 @@ export function buildDeterministicSynthesis(
     for (const sid of consensusSids) assigned.add(sid);
   }
 
-  for (const g of mathResult.groups) {
+  // 只為可報告群建「代表性意見」主題：小群的代表性陳述已遮蔽，其陳述由「全部意見」主題涵蓋
+  for (const g of mathResult.groups.filter((g) => reportableGroupIds.has(g.id))) {
     const sids = [
       ...new Set(g.representative.map((r) => r.sid).filter((sid) => known.has(sid) && !assigned.has(sid))),
     ];

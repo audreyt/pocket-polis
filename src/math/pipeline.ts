@@ -122,20 +122,62 @@ export function computeMath(input: PipelineInput): PipelineOutput {
 export const MIN_GROUP_STATS_SIZE = 3;
 
 /**
- * 公開版 MathResult：人數低於 MIN_GROUP_STATS_SIZE 的群體只保留 id / label / size / center。
- * 逐陳述統計與代表性陳述一併移除——representativeStatements() 對每群至少退而取一句，
- * 單人群的「代表性方向」就是那個人的投票。DO 內部綜整仍用完整版。
+ * 隱私安全版 MathResult（k = MIN_GROUP_STATS_SIZE）。公開 /results 與 AI／確定性綜整一律只看這個版本；
+ * 完整版只存在 DO 的 mathCache 內。三層規則：
+ *
+ * 1. 群體下限：size < k 的群只保留 id / label / size / center（statementStats 與 representative 移除，
+ *    標記 statsRedacted）。representativeStatements() 對每群至少退而取一句，單人群的代表性方向就是那個人的投票。
+ * 2. 逐格下限：即使群 >= k，某陳述在該群的 seen 仍可能是 1～2，直接公佈 {agrees, disagrees, passes, seen}
+ *    等於公佈那一兩個人的選擇。任一格 seen < k 即整列（該陳述所有群的格子）抑制。
+ * 3. 互補差分：全體 statementStats 減去已公佈群格，餘數 = 未分群者 + 被抑制格。整列抑制讓被抑制格
+ *    不會單獨成為餘數；再要求餘數的 seen 為 0 或 >= k，否則同樣整列抑制。於是每個可公佈或可推導的
+ *    池子都 >= k。
+ * 代表性陳述亦套用逐格下限（nSeen < k 者移除），因其自帶 nSuccess / nSeen。
  */
-export function redactSmallGroupStats(result: MathResult): MathResult {
+export function privacySafeMathResult(result: MathResult, k = MIN_GROUP_STATS_SIZE): MathResult {
+  const totals = new Map(result.statementStats.map((s) => [s.sid, s]));
+  const reportable = result.groups.filter((g) => g.size >= k && Array.isArray(g.statementStats));
+  const cellOf = (g: GroupResult, sid: number) => g.statementStats?.find((s) => s.sid === sid);
+
+  // 決定每個陳述是否可公佈群格（整列規則）
+  const publishableSids = new Set<number>();
+  for (const [sid, total] of totals) {
+    if (reportable.length === 0) continue;
+    let ok = true;
+    let publishedSeen = 0;
+    for (const g of reportable) {
+      const cell = cellOf(g, sid);
+      const seen = cell ? cell.seen : 0;
+      if (seen < k) {
+        ok = false;
+        break;
+      }
+      publishedSeen += seen;
+    }
+    if (!ok) continue;
+    const residual = total.seen - publishedSeen;
+    if (residual !== 0 && residual < k) continue;
+    publishableSids.add(sid);
+  }
+
   return {
     ...result,
     groups: result.groups.map((g) => {
-      if (g.size >= MIN_GROUP_STATS_SIZE) return g;
-      const { statementStats: _omit, ...rest } = g;
-      return { ...rest, representative: [], statsRedacted: true };
+      if (g.size < k) {
+        const { statementStats: _omit, ...rest } = g;
+        return { ...rest, representative: [], statsRedacted: true };
+      }
+      return {
+        ...g,
+        representative: g.representative.filter((r) => r.nSeen >= k),
+        statementStats: (g.statementStats ?? []).filter((s) => publishableSids.has(s.sid)),
+      };
     }),
   };
 }
+
+/** @deprecated 舊名；請用 privacySafeMathResult */
+export const redactSmallGroupStats = privacySafeMathResult;
 
 function tallyStatements(votes: VoteRow[], statementIds: number[]): StatementStat[] {
   const stats = new Map<number, StatementStat>(

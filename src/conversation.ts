@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { computeMath, redactSmallGroupStats } from "./math/pipeline";
+import { computeMath, privacySafeMathResult } from "./math/pipeline";
 import { csvEscape, formatCommentsCsv } from "./export";
 import type { MathResult, OpinionPoint, VoteRow, VoteValue } from "./math/types";
 import {
@@ -88,16 +88,18 @@ export interface ProcessSensemakingResult {
   retryable?: boolean;
 }
 
-function parseAiClaim(raw: string | null): { claimedAt: number } | "absent" | "malformed" {
+/** claim 記錄持有它的 jobId：同一任務的重複投遞（Queue at-least-once）才能被辨識為 no-op */
+function parseAiClaim(raw: string | null): { claimedAt: number; jobId: string | null } | "absent" | "malformed" {
   if (!raw) return "absent";
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return "malformed";
-    const claimedAt = (parsed as Record<string, unknown>).claimedAt;
+    const rec = parsed as Record<string, unknown>;
+    const claimedAt = rec.claimedAt;
     if (typeof claimedAt !== "number" || !Number.isFinite(claimedAt) || claimedAt <= 0) {
       return "malformed";
     }
-    return { claimedAt };
+    return { claimedAt, jobId: typeof rec.jobId === "string" ? rec.jobId : null };
   } catch {
     return "malformed";
   }
@@ -445,17 +447,20 @@ export class Conversation extends DurableObject<Env> {
 
   // ---- results ----
 
-  /** 公開 /results：小群逐陳述統計已遮蔽（k-匿名），見 redactSmallGroupStats。 */
+  /**
+   * 公開 /results 與所有綜整輸入：一律為隱私安全版（k-匿名：群下限、逐格下限、互補差分），
+   * 見 privacySafeMathResult。完整版只留在 mathCache。
+   */
   async getResults(
     pid: string | null,
     now: number,
   ): Promise<{ result: MathResult; you: OpinionPoint | null } | null> {
     const full = this.computeResults(pid, now);
     if (!full) return null;
-    return { result: redactSmallGroupStats(full.result), you: full.you };
+    return { result: privacySafeMathResult(full.result), you: full.you };
   }
 
-  /** DO 內部完整結果（含所有群的 statementStats），只供綜整證據驗證，絕不直接回傳給客戶端。 */
+  /** DO 內部完整結果，僅供 getResults 套用隱私規則；不得直接回傳客戶端或送入綜整。 */
   private computeResults(
     pid: string | null,
     now: number,
@@ -796,7 +801,8 @@ export class Conversation extends DurableObject<Env> {
       return { ok: true };
     }
 
-    const math = this.computeResults(null, now);
+    // 綜整證據與公開結果用同一份隱私安全版：模型與確定性摘要看不到任何 < k 的格子
+    const math = await this.getResults(null, now);
     if (!math) {
       this.setMeta("synthesis_pending", "");
       return { ok: true };
@@ -840,11 +846,17 @@ export class Conversation extends DurableObject<Env> {
     };
 
     const claimRaw = this.getMeta(SYNTHESIS_AI_CLAIM_KEY);
-    if (parseAiClaim(claimRaw) === "malformed") {
-      this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now }));
+    const claim = parseAiClaim(claimRaw);
+    if (claim === "malformed") {
+      this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now, jobId }));
       return finishDeterministic();
     }
     if (aiClaimBlocksAttempt(claimRaw, now)) {
+      // Queue 是 at-least-once：同一 jobId 的重複投遞在第一個呼叫仍 await 模型時進來，
+      // claim 就是它自己寫的。此時什麼都不做（不寫 fallback、不清 pending），讓原呼叫完成。
+      if (claim !== "absent" && claim.jobId === jobId) {
+        return { ok: true };
+      }
       return finishDeterministic();
     }
 
@@ -853,7 +865,7 @@ export class Conversation extends DurableObject<Env> {
       return finishDeterministic();
     }
 
-    this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now }));
+    this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now, jobId }));
 
     try {
       const response = await generateSensemaking({
