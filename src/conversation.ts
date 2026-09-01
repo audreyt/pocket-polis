@@ -868,6 +868,7 @@ export class Conversation extends DurableObject<Env> {
       altUrl: typeof patch.altUrl === "string" ? sanitizeAltUrl(patch.altUrl) : current.altUrl,
     };
     this.setMeta("settings", JSON.stringify(next));
+    this.setMeta("synthesis_failure", "");
     return { ok: true, settings: next };
   }
 

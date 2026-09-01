@@ -566,22 +566,22 @@ ${statementsList}`;
       for (const item of parsed.assignments) {
         if (typeof item === "object" && item !== null && !Array.isArray(item)) {
           const rec = item as Record<string, unknown>;
-          if (
-            typeof rec.sid === "number" &&
-            validBatchSids.has(rec.sid) &&
-            typeof rec.primaryTopicId === "string"
-          ) {
-            const prim = sanitizeText(rec.primaryTopicId, 16);
-            if (topicIdSet.has(prim)) {
+          const rawSid = typeof rec.sid === "number" ? rec.sid : typeof rec.statementId === "number" ? rec.statementId : typeof rec.id === "number" ? rec.id : typeof rec.sid === "string" ? parseInt(rec.sid, 10) : NaN;
+          if (!isNaN(rawSid) && validBatchSids.has(rawSid)) {
+            const rawPrim = typeof rec.primaryTopicId === "string" ? rec.primaryTopicId : typeof rec.topicId === "string" ? rec.topicId : typeof rec.primary === "string" ? rec.primary : typeof rec.topic === "string" ? rec.topic : "";
+            const primClean = sanitizeText(rawPrim, 16);
+            // 支援大小寫不敏感匹配 (t1 vs T1)
+            const matchedPrim = [...topicIdSet].find((t) => t.toLowerCase() === primClean.toLowerCase());
+            if (matchedPrim) {
               let sec: string | null = null;
-              if (typeof rec.secondaryTopicId === "string") {
-                const candidateSec = sanitizeText(rec.secondaryTopicId, 16);
-                if (candidateSec && candidateSec !== prim && topicIdSet.has(candidateSec)) {
-                  sec = candidateSec;
-                }
+              const rawSec = typeof rec.secondaryTopicId === "string" ? rec.secondaryTopicId : typeof rec.secondary === "string" ? rec.secondary : "";
+              const secClean = sanitizeText(rawSec, 16);
+              const matchedSec = [...topicIdSet].find((t) => t.toLowerCase() === secClean.toLowerCase() && t !== matchedPrim);
+              if (matchedSec) {
+                sec = matchedSec;
               }
-              result.set(rec.sid, {
-                primary: prim,
+              result.set(rawSid, {
+                primary: matchedPrim,
                 secondary: sec,
               });
             }
