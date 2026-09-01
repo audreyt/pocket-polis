@@ -881,6 +881,71 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     expect(res.themes.find((t) => t.id === "t3")?.primaryStatementIds).toEqual([3]);
   });
 
+  it("Workers AI thinking/text 區塊陣列被剝除後仍能解析 JSON 歸類", async () => {
+    const { mathResult } = createMockMathResult();
+    const statements = [
+      { sid: 1, text: "s1" },
+      { sid: 2, text: "s2" },
+      { sid: 3, text: "s3" },
+    ];
+    const topics = [
+      { id: "t1", title: "Theme 1", description: "Desc 1" },
+      { id: "t2", title: "Theme 2", description: "Desc 2" },
+      { id: "t3", title: "Theme 3", description: "Desc 3" },
+    ];
+    const aiRun = vi.fn();
+    aiRun.mockResolvedValueOnce({
+      response: [
+        { type: "thinking", content: "I will invent ids that must be ignored." },
+        { type: "text", content: JSON.stringify({ topics }) },
+      ],
+    });
+    aiRun.mockResolvedValueOnce({
+      response: [
+        { type: "thinking", content: "[{sid:1, primaryTopicId:'nope'}]" },
+        {
+          type: "text",
+          content: JSON.stringify({
+            assignments: [
+              { sid: 1, primaryTopicId: "t1" },
+              { sid: 2, primaryTopicId: "t2" },
+              { sid: 3, primaryTopicId: "t3" },
+            ],
+          }),
+        },
+      ],
+    });
+    aiRun.mockResolvedValueOnce({
+      response: JSON.stringify({
+        overview: { summary: "Sum", citedStatementIds: [1] },
+        commonGround: { keyPoints: [] },
+        groupPortraits: [],
+        tensions: [],
+      }),
+    });
+
+    const mockAi = { run: aiRun } as unknown as Ai;
+    const res = (await generateSensemaking({
+      ai: mockAi,
+      lang: "en",
+      title: "Title",
+      description: "Desc",
+      mathResult,
+      statements,
+      mathRevision: 1,
+      now: 1000,
+    })) as SensemakingResponse;
+
+    expect(res.status).toBe("ready");
+    if (res.status !== "ready") return;
+    expect(res.themes.find((t) => t.id === "other")).toBeUndefined();
+    expect(res.themes.find((t) => t.id === "t1")?.primaryStatementIds).toEqual([1]);
+    expect(res.themes.find((t) => t.id === "t2")?.primaryStatementIds).toEqual([2]);
+    expect(res.themes.find((t) => t.id === "t3")?.primaryStatementIds).toEqual([3]);
+    const payload = aiRun.mock.calls[0]![1] as { chat_template_kwargs?: { enable_thinking?: boolean } };
+    expect(payload.chat_template_kwargs?.enable_thinking).toBe(false);
+  });
+
   it("AI 呼叫拋出異常時回傳 unavailable，不造成 Worker 崩潰", async () => {
     const { mathResult } = createMockMathResult();
     const aiRun = vi.fn().mockRejectedValue(new Error("Cloudflare AI Gateway 429 Rate Limit"));

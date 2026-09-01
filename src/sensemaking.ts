@@ -577,8 +577,54 @@ function matchTopicRef(raw: unknown, topics: SensemakingTopic[]): string | null 
   return null;
 }
 
+
+function isThinkingPartType(typ: string): boolean {
+  const t = typ.toLowerCase();
+  return t === "thinking" || t === "reason" || t === "reasoning" || t === "thought";
+}
+
+/** Workers AI 推理模型可能回傳 [{type:"thinking"| "text", content}]；只留下非 thinking 文本。 */
+function flattenAiContent(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const parts: string[] = [];
+    for (const item of value) {
+      if (typeof item === "string") {
+        parts.push(item);
+        continue;
+      }
+      if (typeof item === "object" && item !== null && !Array.isArray(item)) {
+        const rec = item as Record<string, unknown>;
+        const typ = typeof rec.type === "string" ? rec.type : "";
+        if (isThinkingPartType(typ)) continue;
+        if (typeof rec.content === "string" && rec.content) parts.push(rec.content);
+        else if (typeof rec.text === "string" && rec.text) parts.push(rec.text);
+      }
+    }
+    return parts.join("\n");
+  }
+  return "";
+}
+
 function extractAssignmentsArray(parsed: unknown): unknown[] | null {
-  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed)) {
+    const looksLikeContentParts =
+      parsed.length > 0 &&
+      parsed.every((item) => {
+        if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
+        const rec = item as Record<string, unknown>;
+        return (
+          typeof rec.type === "string" &&
+          !("sid" in rec) &&
+          !("primaryTopicId" in rec) &&
+          !("statementId" in rec)
+        );
+      });
+    if (looksLikeContentParts) {
+      return extractAssignmentsArray(parseJsonSafe(flattenAiContent(parsed)));
+    }
+    return parsed;
+  }
   if (typeof parsed === "object" && parsed !== null) {
     const rec = parsed as Record<string, unknown>;
     for (const key of ["assignments", "classifications", "data", "results"]) {
@@ -1190,12 +1236,17 @@ async function runAiModel(
     ],
     max_tokens: maxTokens,
     temperature: 0.2,
+    chat_template_kwargs: { enable_thinking: false },
   };
   const result = await ai.run(SENSEMAKING_MODEL, payload as never);
   if (typeof result === "string") return result;
   if (typeof result === "object" && result !== null) {
     const res = result as unknown as Record<string, unknown>;
-    if (typeof res.response === "string") return res.response;
+    if (typeof res.response === "string" && res.response) return res.response;
+    const fromResponseParts = flattenAiContent(res.response);
+    if (fromResponseParts) return fromResponseParts;
+    const fromRootParts = flattenAiContent(result);
+    if (fromRootParts) return fromRootParts;
     if (Array.isArray(res.choices) && res.choices.length > 0) {
       const choice = res.choices[0];
       if (typeof choice === "object" && choice !== null && !Array.isArray(choice)) {
@@ -1205,9 +1256,8 @@ async function runAiModel(
           if (typeof msgRec.content === "string" && msgRec.content) {
             return msgRec.content;
           }
-          if (typeof msgRec.reasoning_content === "string" && msgRec.reasoning_content) {
-            return msgRec.reasoning_content;
-          }
+          const fromContentParts = flattenAiContent(msgRec.content);
+          if (fromContentParts) return fromContentParts;
         }
       }
     }
