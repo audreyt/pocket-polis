@@ -519,21 +519,6 @@ label {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .map-svg circle.dot {
-    animation: none;
-  }
-  .highlight-target {
-    animation: none;
-  }
-  .badge.pulse {
-    animation: none;
-  }
-  * {
-    transition-duration: 0.001ms !important;
-  }
-}
-
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -1248,5 +1233,17 @@ footer .credit {
 @media (max-width: 360px) {
   .tag {
     white-space: normal;
+  }
+}
+
+/* 減少動態：置於檔尾並加 !important，確保勝過上方同特異性的 animation 宣告 */
+@media (prefers-reduced-motion: reduce) {
+  .map-svg circle.dot,
+  .highlight-target,
+  .badge.pulse {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.001ms !important;
   }
 }

@@ -104,6 +104,18 @@ describe("tryReserveDailyNeurons", () => {
     expect(tryReserveDailyNeurons({ utcDay: "2026-09-01", reserved: -1 }, 1, noon).ok).toBe(false);
     expect(tryReserveDailyNeurons(null, Number.NaN, noon).ok).toBe(false);
   });
+
+  it("impossible calendar dates are malformed, not a fresh day (fail-closed against cap bypass)", () => {
+    // 若把 2026-99-99 視為「另一天」，reserved 會歸零，等於繞過每日硬上限
+    for (const utcDay of ["2026-99-99", "2026-02-30", "2026-13-01", "2026-00-10", "0000-00-00"]) {
+      expect(parseDailyNeuronState({ utcDay, reserved: 9000 })).toBe("malformed");
+      expect(tryReserveDailyNeurons({ utcDay, reserved: 9000 }, 1, noon).ok).toBe(false);
+      expect(tryReserveDailyNeurons(JSON.stringify({ utcDay, reserved: 0 }), 1, noon).ok).toBe(false);
+    }
+    // 真實日期仍可正常往返
+    expect(parseDailyNeuronState({ utcDay: "2024-02-29", reserved: 1 })).toEqual({ utcDay: "2024-02-29", reserved: 1 });
+    expect(parseDailyNeuronState({ utcDay: "2026-08-31", reserved: 0 })).toEqual({ utcDay: "2026-08-31", reserved: 0 });
+  });
 });
 
 describe("NeuronCoordinator.reserve", () => {

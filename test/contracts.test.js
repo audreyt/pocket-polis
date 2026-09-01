@@ -308,6 +308,44 @@ describe("結果頁無障礙、樣式與 CSP 合約", () => {
     const styleAttrInEl = /el\(\s*["'][a-z0-9]+["']\s*,\s*\{[^}]*\bstyle\s*:/i.test(js);
     expect(styleAttrInEl).toBe(false);
   });
+
+  it("prefers-reduced-motion 覆寫必須位於所有 animation 宣告之後且加 !important，才能贏得同特異性層疊", () => {
+    const css = read("public/style.css");
+    const rmIdx = css.indexOf("@media (prefers-reduced-motion: reduce)");
+    expect(rmIdx).toBeGreaterThan(0);
+    const block = css.slice(rmIdx);
+    expect(block).toMatch(/\.highlight-target[^{]*\{[^}]*animation:\s*none\s*!important/);
+    expect(block).toMatch(/\.badge\.pulse[^{]*\{[^}]*animation:\s*none\s*!important/);
+    // 媒體區塊之後不得再有任何 animation: 宣告（否則後者覆蓋）
+    const after = css.slice(rmIdx).replace(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/, "");
+    expect(after).not.toMatch(/animation:\s*(?!none)/);
+    // 所有帶 animation 的規則都在覆寫區塊之前
+    for (const sel of [".highlight-target", ".badge.pulse", ".map-svg circle.dot"]) {
+      const declIdx = css.search(new RegExp(sel.replace(/[.]/g, "\\.") + "\\s*\\{[^}]*animation:\\s*[a-z-]+\\s"));
+      expect(declIdx).toBeGreaterThan(-1);
+      expect(declIdx).toBeLessThan(rmIdx);
+    }
+  });
+
+  it("模型歸屬徽章：初始 HTML 隱藏且無文字，只在 ready（或帶快取的 pending）時由 setModelBadge 顯示", () => {
+    const html = read("public/report.html");
+    const js = read("public/js/report.js");
+    expect(html).toMatch(/<span class="badge ai-model-badge hidden" id="ai-model-badge"><\/span>/);
+    expect(html).not.toContain(">Gemma 4 26B<");
+    // 唯一寫入點
+    expect(js.match(/getElementById\("ai-model-badge"\)/g)).toHaveLength(1);
+    expect(js).not.toContain('querySelector(".ai-model-badge")');
+    // unavailable / insufficient / 無快取 pending 三條分支皆呼叫 setModelBadge(null)
+    expect(js.match(/setModelBadge\(null\)/g)).toHaveLength(3);
+    const unavailable = js.slice(js.indexOf('synthesis.status === "unavailable"'), js.indexOf('synthesis.status === "insufficient"'));
+    expect(unavailable).toContain("setModelBadge(null)");
+    const insufficient = js.slice(js.indexOf('synthesis.status === "insufficient"'), js.indexOf('synthesis.status === "pending"'));
+    expect(insufficient).toContain("setModelBadge(null)");
+    // setModelBadge 無 overview 時清空並隱藏
+    const fn = js.slice(js.indexOf("function setModelBadge"), js.indexOf("function clearSynthesisDom"));
+    expect(fn).toMatch(/if \(!synthesis \|\| !synthesis\.overview\)[\s\S]*?textContent = ""[\s\S]*?show\(modelBadge, false\)/);
+    expect(fn).toMatch(/r\.aiModelDeterministic[\s\S]*?r\.aiModelTag[\s\S]*?show\(modelBadge, true\)/);
+  });
 });
 
 describe("agent 引導檔案", () => {

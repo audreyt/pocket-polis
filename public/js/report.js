@@ -349,6 +349,22 @@ function schedulePendingPoll() {
     }
   }, pollIntervalMs);
 }
+function setModelBadge(synthesis) {
+  const modelBadge = document.getElementById("ai-model-badge");
+  if (!modelBadge) return;
+  // 只有真正渲染了 ready 結果（模型或統計摘要）才顯示歸屬；其餘狀態一律隱藏，避免誤標 Gemma
+  if (!synthesis || !synthesis.overview) {
+    modelBadge.textContent = "";
+    show(modelBadge, false);
+    return;
+  }
+  modelBadge.textContent =
+    synthesis.generationMode === "deterministic" || synthesis.model === "deterministic"
+      ? t("r.aiModelDeterministic")
+      : t("r.aiModelTag");
+  show(modelBadge, true);
+}
+
 function clearSynthesisDom() {
   document.getElementById("themes-container")?.replaceChildren();
   show(document.getElementById("themes-section"), false);
@@ -370,6 +386,7 @@ function renderAiOverview(synthesis, mathResult) {
 
   if (!synthesis || synthesis.status === "unavailable") {
     clearSynthesisDom();
+    setModelBadge(null);
     if (pendingPollTimer) {
       clearTimeout(pendingPollTimer);
       pendingPollTimer = null;
@@ -387,6 +404,7 @@ function renderAiOverview(synthesis, mathResult) {
 
   if (synthesis.status === "insufficient") {
     clearSynthesisDom();
+    setModelBadge(null);
     if (pendingPollTimer) {
       clearTimeout(pendingPollTimer);
       pendingPollTimer = null;
@@ -410,6 +428,7 @@ function renderAiOverview(synthesis, mathResult) {
 
     // 若先前已有快取內容，展示快取並加上更新中標記
     if (synthesis.overview && synthesis.themes) {
+      setModelBadge(synthesis);
       const staleNotice = el("div", { class: "notice stale-banner" }, [
         el("p", { class: "muted", text: t("r.aiPending") }),
       ]);
@@ -439,6 +458,7 @@ function renderAiOverview(synthesis, mathResult) {
       renderGroupPortraits(synthesis.groupPortraits);
     } else {
       clearSynthesisDom();
+      setModelBadge(null);
       container.append(
         el("div", { class: "card notice" }, [
           el("p", { class: "lead-text", text: t("r.aiPending") }),
@@ -477,13 +497,7 @@ function renderAiOverview(synthesis, mathResult) {
   }
   show(statusBadge, true);
 
-  const modelBadge = document.querySelector(".ai-model-badge");
-  if (modelBadge) {
-    modelBadge.textContent =
-      synthesis.generationMode === "deterministic" || synthesis.model === "deterministic"
-        ? t("r.aiModelDeterministic")
-        : t("r.aiModelTag");
-  }
+  setModelBadge(synthesis);
 
   const cardChildren = [];
   if (synthesis.isStale) {
