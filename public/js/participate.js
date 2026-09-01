@@ -31,7 +31,7 @@ async function loadInfo() {
   const info = await api(`/api/conversations/${convId}`);
   titleNode.textContent = info.title;
   descNode.textContent = info.description;
-  document.title = `${info.title} — polis-serverless`;
+  document.title = `${info.title} — Pocket Polis`;
   const reportUrl = `/r/${convId}`;
   document.getElementById("report-link").href = reportUrl;
   document.getElementById("footer-report").href = reportUrl;

@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>實務指南 — polis-serverless</title>
+  <title>實務指南 — Pocket Polis 口袋審議</title>
   <meta name="description" content="給審議工作者與主持人的實務指南：什麼時候用意見地圖、種子意見怎麼寫、要多少人、現場怎麼帶、怎麼收尾。">
   <link rel="stylesheet" href="/style.css">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body>
-<main>
+<main class="narrow">
   <nav class="site-nav">
-    <a class="wordmark" href="/">polis-serverless</a>
+    <a class="wordmark" href="/"><img src="/logo.png" alt="Pocket Polis logo">Pocket Polis <span class="zh">口袋審議</span></a>
     <a href="/#create">發起討論</a>
     <a href="/r/3ovoxq5c6o">示範</a>
     <a class="lang" href="/en/guide">EN</a>
@@ -72,7 +73,7 @@
 
   <h2>現場怎麼帶（工作坊流程）</h2>
   <div class="card">
-    <ol class="steps">
+    <ol class="steps-plain">
       <li><strong>開場 3 分鐘</strong>：說明匿名（見下方話術）、示範投一句、強調「略過」是正當選項。</li>
       <li><strong>投票 10–20 分鐘</strong>：把參與連結變成 QR code 投影（任何 QR 產生器貼上連結即可）。鼓勵大家投完後<strong>丟出自己的意見</strong>——新意見會優先出現在別人的投票序列裡。</li>
       <li><strong>你同時開著管理頁</strong>：核准新意見（若開了審核）、順手把明顯重複的下架。</li>
@@ -81,16 +82,16 @@
     </ol>
   </div>
 
-  <h2>跟參與者說明隱私（現成話術）</h2>
+  <h2>向參與者說明隱私</h2>
   <div class="card">
     <p>「這個工具是匿名的：不用註冊、不留姓名 email，系統只在你的瀏覽器裡放一個隨機代號，避免同一個人重複計票。你投的每一票只會變成統計；結果頁上的每個點看得出『有一個人在這裡』，但看不出是誰。你提出的意見會公開顯示，但不會標示是誰寫的。」</p>
   </div>
 
-  <h2 id="how-it-works">地圖是怎麼算出來的（白話版）</h2>
+  <h2 id="how-it-works">地圖是怎麼算出來的</h2>
   <div class="card">
     <p>想像把每個人的全部投票排成一列。投票模式越像的兩個人，就被放得越近；整體攤開成一張二維地圖後，系統自動把「靠在一起的人」圈成群（會自動嘗試 2 到 5 群，選分得最乾淨的那種）。</p>
     <p>每一群的「代表性意見」是：這群人的投法和其他群<strong>差異最大</strong>、而且差異大到不是巧合（有統計檢定把關）的句子。「跨群共識」則是<strong>每一群都傾向同意</strong>的句子——只要有一群不買單，就上不了共識清單。</p>
-    <p class="muted">這套方法重新實作自 Polis 的公開文獻，並用官方公開的真實對話資料驗證過（分群結果與官方高度一致）。想看數學細節：<a href="https://github.com/mashbean/polis-serverless/blob/main/docs/algorithm.md">演算法說明</a>、<a href="https://github.com/mashbean/polis-serverless/blob/main/docs/validation-opendata.md">驗證報告</a>。</p>
+    <p class="muted">這套方法重新實作自 Polis 的公開文獻，並用官方公開的真實對話資料驗證過（分群結果與官方高度一致）。想看數學細節：<a href="https://github.com/mashbean/pocket-polis/blob/main/docs/algorithm.md">演算法說明</a>、<a href="https://github.com/mashbean/pocket-polis/blob/main/docs/validation-opendata.md">驗證報告</a>。</p>
   </div>
 
   <h2>收尾與後續</h2>
@@ -102,7 +103,7 @@
     </ul>
   </div>
 
-  <h2>誠實的限制</h2>
+  <h2>使用上的限制</h2>
   <div class="card">
     <ul>
       <li>匿名代號存在瀏覽器裡：換裝置＝新身分。擋得住誤按、擋不住刻意灌票。</li>
@@ -117,7 +118,10 @@
   </div>
 </main>
 <footer>
-  <p><a href="/">回首頁</a> · <a href="https://github.com/mashbean/polis-serverless">原始碼</a> · <a href="/en/guide">English</a></p>
+  <div class="inner narrow">
+  <p><a href="/">回首頁</a> · <a href="https://github.com/mashbean/pocket-polis">原始碼</a> · <a href="/en/guide">English</a></p>
+  <p class="credit">Created and maintained by <a href="https://github.com/mashbean">mashbean</a></p>
+  </div>
 </footer>
 </body>
 </html>

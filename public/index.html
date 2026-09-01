@@ -3,18 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>polis-serverless — 讓一群人看見彼此的共識</title>
-  <meta name="description" content="免費、免架站的意見調查工具：大家丟出看法、互相投票，系統即時畫出意見地圖——哪裡分成幾派、哪裡其實有共識，一目了然。">
-  <meta property="og:title" content="polis-serverless — 讓一群人看見彼此的共識">
-  <meta property="og:description" content="免費、免架站的 Polis 式意見調查：意見地圖、分群、跨群共識，發個連結就開始。">
+  <title>Pocket Polis 口袋審議 — 讓你可以隨時發起審議的口袋工具</title>
+  <meta name="description" content="Pocket Polis（口袋審議）是由 AI Agent 設計打造的輕量版 Polis：大家丟出意見、互相投票，意見地圖即時顯示分歧與共識。一鍵發起，不用註冊、不用架網站。">
+  <meta property="og:title" content="Pocket Polis 口袋審議 — A pocket tool for deliberation, anytime">
+  <meta property="og:description" content="由 AI Agent 設計打造的輕量版 Polis：意見地圖、自動分群、跨群共識。一鍵發起。A lightweight Polis, designed by AI agents.">
   <meta property="og:url" content="https://polis.mashbean.net/">
+  <meta property="og:image" content="https://polis.mashbean.net/logo.png">
   <link rel="stylesheet" href="/style.css">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body>
 <main>
   <nav class="site-nav">
-    <a class="wordmark" href="/">polis-serverless</a>
+    <a class="wordmark" href="/"><img src="/logo.png" alt="Pocket Polis logo">Pocket Polis <span class="zh">口袋審議</span></a>
     <a href="/guide">實務指南</a>
     <a href="/r/3ovoxq5c6o">示範</a>
     <a href="#self-host">自己架一個</a>
@@ -23,34 +25,58 @@
 
   <div class="hero">
     <div>
-      <h1>讓一群人，<br>看見彼此真正的共識</h1>
-      <p class="tagline">polis-serverless 是免費、開源的意見調查工具：大家丟出看法、對彼此的看法投「同意／不同意」，系統即時畫出<strong>意見地圖</strong>——哪裡分成幾派、哪裡其實有共識，一目了然。發一個連結就能開始，不用註冊、不用架網站。</p>
+      <div class="eyebrow">Pocket Polis · 口袋審議</div>
+      <h1>把審議，<br><span class="grad-text">放進你的口袋</span></h1>
+      <p class="tagline">讓你可以隨時發起審議的口袋工具<br><span class="muted">A pocket tool for deliberation, anytime.</span></p>
+      <p class="lede">由 AI Agent 設計打造的輕量版 <a href="https://compdemocracy.org/polis/">Polis</a>：大家丟出意見、對彼此的意見投「同意／不同意」，<strong>意見地圖</strong>即時顯示哪裡分成幾派、哪裡其實有共識。發一個連結就能開始。</p>
       <div class="actions hero-actions">
-        <a class="button primary" href="#create">免費發起一場討論</a>
+        <a class="button primary" href="#create">一鍵發起</a>
         <a class="button" href="/r/3ovoxq5c6o">先看示範</a>
       </div>
-      <p class="trust-line">開源 MIT · 匿名參與、無追蹤 · 資料可整包帶走 · 分群方法通過官方 Polis 公開資料驗證</p>
+      <div class="check-row">
+        <span>不用註冊</span>
+        <span>匿名參與、無追蹤</span>
+        <span>開源 MIT</span>
+        <span>資料可整包帶走</span>
+      </div>
     </div>
     <div class="hero-figure" aria-hidden="true">
-      <svg viewBox="0 0 320 240" xmlns="http://www.w3.org/2000/svg">
-        <rect x="1" y="1" width="318" height="238" rx="12" fill="var(--surface)" stroke="var(--border)"/>
-        <g fill="var(--group-1)" fill-opacity="0.75">
-          <circle cx="70" cy="88" r="6"/><circle cx="95" cy="70" r="6"/><circle cx="58" cy="120" r="6"/>
-          <circle cx="88" cy="112" r="6"/><circle cx="112" cy="92" r="6"/><circle cx="76" cy="150" r="6"/>
-          <circle cx="104" cy="138" r="6"/><circle cx="52" cy="66" r="6"/><circle cx="126" cy="118" r="6"/>
+      <svg viewBox="0 0 380 330" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="378" height="328" rx="16" fill="var(--surface)" stroke="var(--border)"/>
+        <rect x="1" y="1" width="378" height="34" rx="16" fill="var(--surface-2)"/>
+        <rect x="1" y="19" width="378" height="16" fill="var(--surface-2)"/>
+        <circle cx="22" cy="18" r="4" fill="#f87171"/><circle cx="38" cy="18" r="4" fill="#fbbf24"/><circle cx="54" cy="18" r="4" fill="#34d399"/>
+        <rect x="120" y="10" width="140" height="16" rx="8" fill="var(--bg)" stroke="var(--border)"/>
+        <text x="190" y="22" text-anchor="middle" font-size="9" fill="var(--muted)">polis.mashbean.net</text>
+        <path d="M 52 128 Q 60 84 106 86 Q 152 88 150 128 Q 148 170 100 172 Q 56 172 52 128 Z" fill="var(--group-1)" fill-opacity="0.09" stroke="var(--group-1)" stroke-opacity="0.4" stroke-width="1.2" stroke-dasharray="5 5"/>
+        <path d="M 228 132 Q 234 88 282 88 Q 330 90 328 132 Q 326 174 278 176 Q 232 176 228 132 Z" fill="var(--group-0)" fill-opacity="0.09" stroke="var(--group-0)" stroke-opacity="0.4" stroke-width="1.2" stroke-dasharray="5 5"/>
+        <g fill="var(--group-1)" stroke="var(--surface)" stroke-width="1.3">
+          <circle cx="82" cy="106" r="5.5"/><circle cx="112" cy="100" r="5.5"/><circle cx="70" cy="132" r="5.5"/>
+          <circle cx="100" cy="128" r="5.5"/><circle cx="126" cy="120" r="5.5"/><circle cx="86" cy="152" r="5.5"/>
+          <circle cx="116" cy="148" r="5.5"/>
         </g>
-        <g fill="var(--group-0)" fill-opacity="0.75">
-          <circle cx="222" cy="94" r="6"/><circle cx="248" cy="78" r="6"/><circle cx="210" cy="126" r="6"/>
-          <circle cx="240" cy="116" r="6"/><circle cx="264" cy="100" r="6"/><circle cx="228" cy="152" r="6"/>
-          <circle cx="256" cy="140" r="6"/><circle cx="204" cy="72" r="6"/><circle cx="276" cy="124" r="6"/>
+        <g fill="var(--group-0)" stroke="var(--surface)" stroke-width="1.3">
+          <circle cx="256" cy="108" r="5.5"/><circle cx="286" cy="102" r="5.5"/><circle cx="246" cy="136" r="5.5"/>
+          <circle cx="276" cy="130" r="5.5"/><circle cx="304" cy="122" r="5.5"/><circle cx="262" cy="156" r="5.5"/>
+          <circle cx="292" cy="150" r="5.5"/>
         </g>
-        <circle cx="88" cy="108" r="24" fill="none" stroke="var(--group-1)" stroke-width="2" stroke-dasharray="4 4"/>
-        <circle cx="240" cy="112" r="24" fill="none" stroke="var(--group-0)" stroke-width="2" stroke-dasharray="4 4"/>
-        <text x="88" y="63" text-anchor="middle" font-size="12" font-weight="700" fill="var(--group-1)">B</text>
-        <text x="240" y="63" text-anchor="middle" font-size="12" font-weight="700" fill="var(--group-0)">A</text>
-        <text x="160" y="130" text-anchor="middle" font-size="15" fill="var(--text)">★</text>
-        <rect x="92" y="188" width="136" height="26" rx="13" fill="var(--agree)" fill-opacity="0.15" stroke="var(--agree)"/>
-        <text x="160" y="205" text-anchor="middle" font-size="12" fill="var(--agree)">跨群共識 83%</text>
+        <rect x="72" y="56" width="58" height="20" rx="10" fill="var(--surface)" stroke="var(--group-1)" stroke-width="1.2"/>
+        <text x="101" y="70" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--group-1)">B 群 · 51</text>
+        <rect x="248" y="58" width="58" height="20" rx="10" fill="var(--surface)" stroke="var(--group-0)" stroke-width="1.2"/>
+        <text x="277" y="72" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--group-0)">A 群 · 62</text>
+        <circle cx="190" cy="128" r="9" fill="none" stroke="var(--text)" stroke-width="1.4"/>
+        <text x="190" y="132.5" text-anchor="middle" font-size="11" fill="var(--text)">★</text>
+        <rect x="36" y="206" width="308" height="44" rx="10" fill="var(--surface-2)" stroke="var(--border)"/>
+        <text x="52" y="224" font-size="10" fill="var(--muted)">跨群共識 · Common ground</text>
+        <text x="52" y="240" font-size="11" fill="var(--text)">全民防衛韌性應與軍購同步投資</text>
+        <rect x="272" y="216" width="58" height="20" rx="10" fill="var(--agree)" fill-opacity="0.12" stroke="var(--agree)"/>
+        <text x="301" y="230" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--agree)">83% 同意</text>
+        <rect x="36" y="262" width="150" height="40" rx="10" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="52" y="280" font-size="14" font-weight="700" fill="var(--text)">113</text>
+        <text x="52" y="294" font-size="9" fill="var(--muted)">參與者 Participants</text>
+        <rect x="194" y="262" width="150" height="40" rx="10" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="210" y="280" font-size="14" font-weight="700" fill="var(--text)">2,712</text>
+        <text x="210" y="294" font-size="9" fill="var(--muted)">票 Votes</text>
       </svg>
     </div>
   </div>
@@ -83,15 +109,15 @@
   <h2>示範：【模擬】國防軍購特別預算公投</h2>
   <div class="card">
     <p>113 位<strong>虛構</strong>立法委員（化名取自台灣物種與地景，非真實個人）依政黨席次結構由程式模擬投票。地圖分成 62:51 兩群、沿著「兩岸對話 vs 軍購嚇阻」的斷層線對立——但在<strong>透明、監督、全民防衛韌性</strong>等五句意見上，出現 67–83% 的跨群共識。</p>
-    <p class="muted">討論開放中：你的每一票都會即時改變地圖。模擬方法見<a href="https://github.com/mashbean/polis-serverless/blob/main/docs/demo-legislature-sim.md">案例說明</a>。</p>
+    <p class="muted">討論開放中：你的每一票都會即時改變地圖。模擬方法見<a href="https://github.com/mashbean/pocket-polis/blob/main/docs/demo-legislature-sim.md">案例說明</a>。English demo: <a href="/r/qx7fc5m3ql?lang=en">simulated defense-budget referendum</a>.</p>
     <div class="actions">
       <a class="button primary" href="/c/3ovoxq5c6o">加入投票</a>
       <a class="button" href="/r/3ovoxq5c6o">看意見地圖與共識</a>
     </div>
   </div>
 
-  <h2 id="create">發起一場討論</h2>
-  <p class="muted">直接用這個公用示範站就能開始（想要自己的網站與資料，見下方「<a href="#self-host">自己架一個</a>」）。</p>
+  <h2 id="create">一鍵發起</h2>
+  <p class="muted">直接用這個公用示範站就能開始（想要自己的網址與資料，見下方「<a href="#self-host">自己架一個</a>」）。</p>
   <form id="create-form" class="card">
     <label for="title">題目</label>
     <input type="text" id="title" name="title" maxlength="120" required placeholder="例：我們的社群接下來一年最該做什麼？">
@@ -127,48 +153,43 @@
     </div>
   </section>
 
-  <h2 id="self-host">自己架一個（不用租伺服器、不用懂維運）</h2>
-  <p>想要「自己的網址、自己的資料」時，把它部署到你自己的 Cloudflare 帳號。Cloudflare 是大型網路服務商，<strong>免費方案就夠</strong>跑數百人的討論；資料存在你的帳號裡，隨時可整包下載帶走。三條路：</p>
+  <h2 id="self-host">自己架一個</h2>
+  <p>想要「自己的網址、自己的資料」時，交給你的 AI 助手，十分鐘內部署到你自己的 Cloudflare 帳號。Cloudflare 是大型網路服務商，<strong>免費方案就夠</strong>跑數百人的討論；資料存在你的帳號裡，隨時可整包下載帶走。</p>
 
   <div class="card">
-    <h3>A · 交給你的 AI 助手</h3>
-    <p>把下面這段話貼給 Claude Code、Cursor 等 AI 程式助手。你只需要在瀏覽器按一次「登入 Cloudflare」，其他都交給它。</p>
-    <pre id="agent-prompt">請照 https://github.com/mashbean/polis-serverless/blob/main/AGENT.md 的說明，把 polis-serverless 部署到我的 Cloudflare 帳號（wrangler login 那一步我自己完成），部署完成後用 API 幫我建立第一場討論。</pre>
+    <h3>交給你的 AI 助手</h3>
+    <ol class="steps-plain">
+      <li>還沒有 Cloudflare 帳號的話，先到 <a href="https://dash.cloudflare.com/sign-up">dash.cloudflare.com/sign-up</a> 免費註冊（只要 email）。</li>
+      <li>把下面這段話貼給 Claude Code、Cursor 等 AI 程式助手。</li>
+      <li>過程中它會請你在瀏覽器按一次「登入 Cloudflare」——這是唯一需要你動手的事。</li>
+    </ol>
+    <pre id="agent-prompt">請照 https://github.com/mashbean/pocket-polis/blob/main/AGENT.md 的說明，把 Pocket Polis 部署到我的 Cloudflare 帳號（wrangler login 那一步我自己完成），部署完成後用 API 幫我建立第一場討論。</pre>
     <div class="actions">
       <button type="button" data-copy="agent-prompt">複製這段話</button>
-      <a class="button" href="https://github.com/mashbean/polis-serverless/blob/main/AGENT.md">給 AI 的說明書</a>
+      <a class="button" href="https://github.com/mashbean/pocket-polis/blob/main/AGENT.md">給 AI 的說明書</a>
     </div>
-  </div>
-
-  <div class="card">
-    <h3>B · 一鍵部署按鈕</h3>
-    <p>登入 Cloudflare 後按下按鈕，系統會自動複製程式並部署，全程按「下一步」就好。</p>
-    <div class="actions">
-      <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/polis-serverless"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"></a>
-    </div>
-  </div>
-
-  <div class="card">
-    <h3>C · 會用終端機的人：六行指令</h3>
-    <pre id="manual-steps">git clone https://github.com/mashbean/polis-serverless.git
-cd polis-serverless
+    <details class="plain-box">
+      <summary>習慣終端機？六行指令也可以</summary>
+      <pre id="manual-steps">git clone https://github.com/mashbean/pocket-polis.git
+cd pocket-polis
 npm install
 npx wrangler login
 npm run check
 npm run deploy</pre>
-    <div class="actions">
-      <button type="button" data-copy="manual-steps">複製指令</button>
-    </div>
+      <div class="actions">
+        <button type="button" data-copy="manual-steps">複製指令</button>
+      </div>
+    </details>
   </div>
 
   <h2>常見問題</h2>
   <details class="faq">
     <summary>真的不用架伺服器嗎？</summary>
-    <p>對。「無伺服器」的意思是<strong>沒有一台你需要照顧的機器</strong>——不用租主機、不用備份資料庫、不用半夜重開機。程式放在 Cloudflare 的雲端服務上，有人投票才運轉，平常不耗資源也不收費。技術上的完整說明（包括我們比較過哪些替代方案）在<a href="https://github.com/mashbean/polis-serverless/blob/main/docs/is-this-serverless.md">這份文件</a>。</p>
+    <p>對。「無伺服器」的意思是<strong>沒有一台你需要照顧的機器</strong>——不用租主機、不用備份資料庫、不用半夜重開機。程式放在 Cloudflare 的雲端服務上，有人投票才運轉，平常不耗資源也不收費。完整的技術說明（包括我們比較過哪些替代方案）在<a href="https://github.com/mashbean/pocket-polis/blob/main/docs/is-this-serverless.md">這份文件</a>。</p>
   </details>
   <details class="faq">
     <summary>參與的人會被記名嗎？</summary>
-    <p>不會。不用註冊、不填 email；瀏覽器只保存一個隨機代號避免重複計票。結果頁和下載的資料裡都沒有任何身分資訊。誠實提醒：這種輕量做法擋不住刻意的灌票，適合彼此有基本信任的社群、課堂、工作坊；高對抗性的公共諮詢請用官方 pol.is。</p>
+    <p>不會。不用註冊、不填 email；瀏覽器只保存一個隨機代號避免重複計票。結果頁和下載的資料裡都沒有任何身分資訊。提醒：這種輕量做法擋不住刻意的灌票，適合彼此有基本信任的社群、課堂、工作坊；高對抗性的公共諮詢請用官方 pol.is。</p>
   </details>
   <details class="faq">
     <summary>需要多少人參加才有意義？</summary>
@@ -176,16 +197,23 @@ npm run deploy</pre>
   </details>
   <details class="faq">
     <summary>它和官方 pol.is 有什麼不同？</summary>
-    <p>官方 pol.is 是成熟的大型平台，需要工程團隊自架或申請使用。polis-serverless 依公開文獻重新實作同一套分群方法（並用官方公開資料驗證過，三個資料集的分群一致性 ARI 0.78–0.86），換來「按一次就部署、免費跑」的輕量性。與官方團隊（The Computational Democracy Project）無隸屬關係。</p>
+    <p>官方 pol.is 是成熟的大型平台，需要工程團隊自架或申請使用。Pocket Polis 依公開文獻重新實作同一套分群方法（並用官方公開資料驗證過，三個資料集的分群一致性 ARI 0.78–0.86），換來「一鍵發起、免費跑」的輕量性。與官方團隊（The Computational Democracy Project）無隸屬關係。</p>
   </details>
   <details class="faq">
     <summary>資料存在哪裡？可以帶走嗎？</summary>
     <p>存在部署者的 Cloudflare 帳號裡，每場討論各自獨立。主持人隨時可以下載完整的意見清單與投票紀錄（匿名化 CSV），也可以選擇開放任何人下載。</p>
   </details>
+  <details class="faq">
+    <summary>示範站有使用規範嗎？</summary>
+    <p>有。出現騷擾、仇恨言論、違法內容、洩露個資、灌票操弄等情況時，站方（mashbean）有權下架相關討論，詳見<a href="https://github.com/mashbean/pocket-polis/blob/main/CODE_OF_CONDUCT.md">行為準則</a>。自架的站點由部署者自訂規範。</p>
+  </details>
 </main>
 <footer>
-  <p><a href="/guide">實務指南</a> · <a href="https://github.com/mashbean/polis-serverless">原始碼</a>（MIT）· <a href="/en">English</a><br>
-  分群方法依 Polis 公開文獻重新實作，與 The Computational Democracy Project 的 pol.is 無隸屬關係。驗證資料：compdemocracy openData（CC BY 4.0）。</p>
+  <div class="inner">
+    <p><a href="/guide">實務指南</a> · <a href="https://github.com/mashbean/pocket-polis">原始碼</a>（MIT）· <a href="https://github.com/mashbean/pocket-polis/blob/main/CODE_OF_CONDUCT.md">行為準則</a> · <a href="/en">English</a><br>
+    Pocket Polis（口袋審議）依 Polis 公開文獻重新實作，與 The Computational Democracy Project 的 pol.is 無隸屬關係。驗證資料：compdemocracy openData（CC BY 4.0）。</p>
+    <p class="credit">Created and maintained by <a href="https://github.com/mashbean">mashbean</a></p>
+  </div>
 </footer>
 <script type="module" src="/js/create.js"></script>
 </body>

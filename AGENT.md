@@ -9,7 +9,7 @@ polis-serverless runs a complete Polis-style wikisurvey round (statement submiss
 ## Deployment (the user only logs in)
 
 ```bash
-git clone https://github.com/mashbean/polis-serverless.git
+git clone https://github.com/mashbean/pocket-polis.git
 cd polis-serverless
 npm install
 npx wrangler login   # ← the ONE user step: a browser opens for Cloudflare OAuth

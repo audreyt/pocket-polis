@@ -348,6 +348,7 @@ export class Conversation extends DurableObject<Env> {
   }
 
   private recompute(id: string, revision: number, now: number): MathCache {
+    const previousK = this.readMathCache()?.publicResult.k ?? null;
     const statementIds = this.sql()
       .exec(`SELECT sid FROM statements WHERE status = 'approved' ORDER BY sid`)
       .toArray()
@@ -364,6 +365,7 @@ export class Conversation extends DurableObject<Env> {
       votes,
       statementIds,
       computedAt: now,
+      previousK: previousK && previousK >= 2 ? previousK : null,
     });
     const cache: MathCache = { revision, publicResult, pidPoints };
     this.setMeta("mathCache", JSON.stringify(cache));

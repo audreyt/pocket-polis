@@ -47,11 +47,12 @@ async function refresh() {
   const overview = await api(`/api/conversations/${convId}/admin`, { headers: authHeaders() });
   const { settings, statements } = overview;
   document.getElementById("conv-title").textContent = t("a.manage", { title: settings.title });
-  document.title = `${t("a.manage", { title: settings.title })} — polis-serverless`;
+  document.title = `${t("a.manage", { title: settings.title })} — Pocket Polis`;
 
   const origin = location.origin;
   document.getElementById("participate-url").textContent = `${origin}/c/${convId}`;
   document.getElementById("report-url").textContent = `${origin}/r/${convId}`;
+  document.getElementById("admin-url").textContent = `${origin}/a/${convId}#token=${token}`;
 
   document.getElementById("setting-status").checked = settings.status === "open";
   document.getElementById("setting-autoApprove").checked = settings.autoApprove;

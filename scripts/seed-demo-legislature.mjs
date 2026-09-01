@@ -9,7 +9,9 @@
 // 預設打 https://polis.mashbean.net。輸出參與/結果/管理連結（管理金鑰只印在
 // 終端，不落地）。同一個 SEED 重跑會產生同樣的投票模式（但會建立新對話）。
 
-const BASE = process.argv[2] ?? "https://polis.mashbean.net";
+const args = process.argv.slice(2).filter((a) => a !== "--lang" && a !== "en");
+const LANG = process.argv.includes("en") && process.argv.includes("--lang") ? "en" : "zh";
+const BASE = args[0] ?? "https://polis.mashbean.net";
 const SEED = 20260901;
 
 // ---- 決定性 PRNG ----
@@ -41,6 +43,47 @@ const BLOCS = [
   { key: "white", label: "白（民眾黨團）", seats: 8 },
   { key: "ind", label: "無黨籍", seats: 2 },
 ];
+
+// ---- 英文版種子意見（與中文版一一對應，供 --lang en 使用） ----
+const STATEMENTS_EN = [
+  "China's military pressure on Taiwan is rising fast; Taiwan must visibly strengthen deterrence within a decade.",
+  "Funding large-scale arms procurement through a special (debt-financed) budget is an acceptable fiscal arrangement.",
+  "Procurement should prioritize proven, off-the-shelf US equipment to shorten the time to combat readiness.",
+  "Rather than importing at scale, more budget should go to domestically built weapons and the local defense industry.",
+  "Asymmetric capabilities (mobile missiles, drones, sea mines) deserve priority over large platforms (fighter jets, large warships).",
+  "A major defense expansion would crowd out social welfare, long-term care, and education spending beyond what society can bear.",
+  "Taiwan's defense budget should reach at least 3% of GDP before 2030.",
+  "Too much of major procurement sits in classified budgets; the legislature's real oversight is insufficient.",
+  "An independent audit and cost-effectiveness review should be established, publishing an unclassified report for every case.",
+  "Improving pay and training for volunteer forces and reservists is more urgent than buying new equipment.",
+  "Whole-of-society resilience (civil defense training, critical infrastructure protection, strategic stockpiles) should be funded alongside procurement.",
+  "Restoring institutionalized cross-strait dialogue would reduce the risk of war more than buying more arms.",
+  "More procurement will fuel an arms race and actually make the Taiwan Strait less safe.",
+  "Pricing and delivery delays in US arms sales are serious; stronger negotiation and compensation mechanisms are needed.",
+  "Highly specialized issues like national defense are not suitable for referendums.",
+  "Given chronic delivery delays, the budget should first improve the readiness of existing equipment and ammunition stockpiles.",
+  "The special budget should be reviewed in phases, with each tranche released based on execution performance.",
+  "Procurement is a necessary investment in US-Taiwan trust; Taiwan's security ultimately depends on US commitments.",
+  "Social resilience and economic strength, more than military hardware, are the real foundation of Taiwan's security.",
+  "Wartime stockpiles of ammunition, energy, and food should take priority over new large platforms.",
+  "The government should publish the concrete procurement list and priorities before the special budget goes to review.",
+  "The results of conscription and reservist reform should be part of evaluating overall defense investment.",
+  "Technology transfer and industrial cooperation clauses should be a required condition of every foreign arms purchase.",
+  "Opposition parties cutting or freezing the defense budget in the legislature is irresponsible.",
+];
+
+const META = {
+  zh: {
+    title: "【模擬】國防軍購特別預算公投",
+    description:
+      "這是 Pocket Polis（口袋審議）的展示案例（全部虛構）。情境：政府擬以特別條例編列約 1.25 兆元國防特別預算（2027–2033）大幅擴增軍購，本對話模擬公投前的社會討論。已有 113 位「虛構立法委員」依政黨席次結構（綠 51、藍 52、白 8、無黨籍 2）由程式模擬投票——化名取自台灣物種與地景，非真實個人，不代表任何真實立委或黨團立場。歡迎你直接加入投票、提出意見，看看意見地圖怎麼變化。",
+  },
+  en: {
+    title: "[Simulation] Defense Procurement Special-Budget Referendum",
+    description:
+      "A Pocket Polis demo case — entirely fictional. Scenario: the government proposes a special act with roughly NT$1.25 trillion in defense procurement spending (2027–2033), and this conversation simulates the public debate before a referendum. 113 fictional legislators, matching Taiwan's actual party-seat structure (51 green, 52 blue, 8 white, 2 independents), have been simulated programmatically — pseudonyms come from Taiwanese wildlife and landscapes, represent no real person, and reflect no real legislator's or party's position. Join the voting and add statements to watch the opinion map change.",
+  },
+};
 
 // ---- 陳述與各黨團基準機率 [同意, 略過, 不同意] ----
 // 「ind」未列者沿用 blue 並提高略過率。機率為模型設定，非真實民調。
@@ -146,13 +189,13 @@ async function api(path, { method = "GET", body, token } = {}) {
 
 async function main() {
   console.log(`目標站點：${BASE}`);
+  const seedTexts = LANG === "en" ? STATEMENTS_EN : STATEMENTS.map(([text]) => text);
   const created = await api("/api/conversations", {
     method: "POST",
     body: {
-      title: "【模擬】國防軍購特別預算公投",
-      description:
-        "這是 polis-serverless 的展示案例（全部虛構）。情境：政府擬以特別條例編列約 1.25 兆元國防特別預算（2027–2033）大幅擴增軍購，本對話模擬公投前的社會討論。已有 113 位「虛構立法委員」依政黨席次結構（綠 51、藍 52、白 8、無黨籍 2）由程式模擬投票——化名取自台灣物種與地景，非真實個人，不代表任何真實立委或黨團立場。歡迎你直接加入投票、提出陳述，看看意見地圖怎麼變化。",
-      seedStatements: STATEMENTS.map(([text]) => text),
+      title: META[LANG].title,
+      description: META[LANG].description,
+      seedStatements: seedTexts,
       autoApprove: false, // 訪客提出的陳述需審核（公開政治議題 demo 的保守設定）
       allowSubmissions: true,
       openData: true, // 匿名化 CSV 任何人可下載

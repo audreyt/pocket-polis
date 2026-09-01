@@ -3,17 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Facilitator guide — polis-serverless</title>
+  <title>Facilitator guide — Pocket Polis</title>
   <meta name="description" content="A practical guide for facilitators and hosts: when to use an opinion map, how to write seed statements, how many people you need, how to run the room, how to wrap up.">
   <link rel="stylesheet" href="/style.css">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body>
-<main>
+<main class="narrow">
   <nav class="site-nav">
-    <a class="wordmark" href="/en">polis-serverless</a>
+    <a class="wordmark" href="/en"><img src="/logo.png" alt="Pocket Polis logo">Pocket Polis</a>
     <a href="/en#create">Start a conversation</a>
-    <a href="/r/3ovoxq5c6o?lang=en">Demo</a>
+    <a href="/r/qx7fc5m3ql?lang=en">Demo</a>
     <a class="lang" href="/guide">中文</a>
   </nav>
 
@@ -71,7 +72,7 @@
 
   <h2>Running the room (workshop flow)</h2>
   <div class="card">
-    <ol class="steps">
+    <ol class="steps-plain">
       <li><strong>3-minute opening</strong>: explain anonymity (script below), demo one vote, stress that "Pass" is a legitimate choice.</li>
       <li><strong>10–20 minutes of voting</strong>: project the participation link as a QR code (any QR generator works). Encourage people to <strong>add their own statements</strong> after voting — new statements get shown to others first.</li>
       <li><strong>Keep the host page open</strong>: approve new statements (if moderation is on) and unpublish obvious duplicates.</li>
@@ -80,16 +81,16 @@
     </ol>
   </div>
 
-  <h2>Explaining privacy to participants (ready-made script)</h2>
+  <h2>Explaining privacy to participants</h2>
   <div class="card">
     <p>"This tool is anonymous: no registration, no name or email. The system keeps one random code in your browser so the same person isn't counted twice. Your votes become statistics only; each dot on the map shows that someone is there, not who they are. Statements you submit are shown publicly but never attributed."</p>
   </div>
 
-  <h2 id="how-it-works">How the map is computed (plain version)</h2>
+  <h2 id="how-it-works">How the map is computed</h2>
   <div class="card">
     <p>Imagine laying out each person's full voting record in a row. The more similarly two people voted, the closer they are placed; flattened into a two-dimensional map, people who voted alike sit together, and the system circles the clusters into groups (it tries 2 to 5 groups and keeps the cleanest split).</p>
     <p>A group's "distinctive statements" are the ones where that group's voting differs <strong>most</strong> from everyone else — with a statistical test guarding against flukes. "Common ground" is the statements <strong>every group</strong> leans toward agreeing with; if even one group doesn't, it stays off the list.</p>
-    <p class="muted">The method is reimplemented from the published Polis literature and validated against official open conversation data (our clustering closely matches the official runs). For the math: <a href="https://github.com/mashbean/polis-serverless/blob/main/docs/algorithm.md">algorithm notes</a>, <a href="https://github.com/mashbean/polis-serverless/blob/main/docs/validation-opendata.md">validation report</a>.</p>
+    <p class="muted">The method is reimplemented from the published Polis literature and validated against official open conversation data (our clustering closely matches the official runs). For the math: <a href="https://github.com/mashbean/pocket-polis/blob/main/docs/algorithm.md">algorithm notes</a>, <a href="https://github.com/mashbean/pocket-polis/blob/main/docs/validation-opendata.md">validation report</a>.</p>
   </div>
 
   <h2>Wrapping up</h2>
@@ -112,11 +113,14 @@
 
   <div class="actions mt-lg">
     <a class="button primary" href="/en#create">Start a conversation</a>
-    <a class="button" href="/r/3ovoxq5c6o?lang=en">See the demo results</a>
+    <a class="button" href="/r/qx7fc5m3ql?lang=en">See the demo results</a>
   </div>
 </main>
 <footer>
-  <p><a href="/en">Home</a> · <a href="https://github.com/mashbean/polis-serverless">Source</a> · <a href="/guide">中文</a></p>
+  <div class="inner narrow">
+  <p><a href="/en">Home</a> · <a href="https://github.com/mashbean/pocket-polis">Source</a> · <a href="/guide">中文</a></p>
+  <p class="credit">Created and maintained by <a href="https://github.com/mashbean">mashbean</a></p>
+  </div>
 </footer>
 </body>
 </html>

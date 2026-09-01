@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>管理 — polis-serverless</title>
+  <title>管理 — Pocket Polis</title>
   <link rel="stylesheet" href="/style.css">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body>
-<main>
+<main class="narrow">
   <div class="page-top">
     <h1 id="conv-title" data-i18n="a.title">管理頁</h1>
     <span class="lang-switch" id="lang-switch"></span>
@@ -28,6 +29,8 @@
       <div class="link-row"><code id="participate-url"></code><button type="button" data-copy="participate-url" data-i18n="a.copy">複製</button></div>
       <p><strong data-i18n="a.reportLink">結果頁</strong></p>
       <div class="link-row"><code id="report-url"></code><button type="button" data-copy="report-url" data-i18n="a.copy">複製</button></div>
+      <p><strong data-i18n="a.adminLink">管理連結（含金鑰，只給共同主持人）</strong></p>
+      <div class="link-row"><code id="admin-url"></code><button type="button" data-copy="admin-url" data-i18n="a.copy">複製</button></div>
     </div>
 
     <h2 data-i18n="a.settingsTitle">設定</h2>
@@ -60,7 +63,9 @@
   </div>
 </main>
 <footer>
-  <p><span data-i18n="a.footerNote">管理金鑰只存在此分頁的 sessionStorage，關閉分頁即清除。</span> <a href="https://github.com/mashbean/polis-serverless" data-i18n="app.sourceLink">原始碼</a></p>
+  <div class="inner narrow">
+  <p><span data-i18n="a.footerNote">管理金鑰只存在此分頁的 sessionStorage，關閉分頁即清除。</span> <a href="https://github.com/mashbean/pocket-polis" data-i18n="app.sourceLink">原始碼</a></p>
+  </div>
 </footer>
 <script type="module" src="/js/admin.js"></script>
 </body>

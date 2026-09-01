@@ -3,54 +3,80 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>polis-serverless — see what a group really agrees on</title>
-  <meta name="description" content="A free, no-hosting opinion survey tool: people share views and vote on each other's views, and a live opinion map shows where the group splits — and where it actually agrees.">
-  <meta property="og:title" content="polis-serverless — see what a group really agrees on">
-  <meta property="og:description" content="A free, serverless Polis-style wikisurvey: opinion map, clustering, cross-group consensus. Share a link and start.">
+  <title>Pocket Polis — a pocket tool for deliberation, anytime</title>
+  <meta name="description" content="Pocket Polis is a lightweight Polis designed and built by AI agents: people share views and vote on each other's, while a live opinion map shows where the group splits — and where it agrees. Start in one step; no sign-ups, no website to run.">
+  <meta property="og:title" content="Pocket Polis — a pocket tool for deliberation, anytime">
+  <meta property="og:description" content="A lightweight Polis designed by AI agents: opinion map, automatic clustering, cross-group consensus. Start in one step.">
   <meta property="og:url" content="https://polis.mashbean.net/en">
+  <meta property="og:image" content="https://polis.mashbean.net/logo.png">
   <link rel="stylesheet" href="/style.css">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body>
 <main>
   <nav class="site-nav">
-    <a class="wordmark" href="/en">polis-serverless</a>
+    <a class="wordmark" href="/en"><img src="/logo.png" alt="Pocket Polis logo">Pocket Polis</a>
     <a href="/en/guide">Facilitator guide</a>
-    <a href="/r/3ovoxq5c6o?lang=en">Demo</a>
+    <a href="/r/qx7fc5m3ql?lang=en">Demo</a>
     <a href="#self-host">Host your own</a>
     <a class="lang" href="/">中文</a>
   </nav>
 
   <div class="hero">
     <div>
-      <h1>See what a group<br>really agrees on</h1>
-      <p class="tagline">polis-serverless is a free, open-source opinion survey tool: people share short statements and vote agree/disagree on each other's, while a live <strong>opinion map</strong> shows where the group splits into camps — and where it actually agrees. Share one link to start. No sign-ups, no website to run.</p>
+      <div class="eyebrow">Pocket Polis</div>
+      <h1>Deliberation,<br><span class="grad-text">in your pocket</span></h1>
+      <p class="tagline">A pocket tool for starting deliberation, anytime.</p>
+      <p class="lede">A lightweight <a href="https://compdemocracy.org/polis/">Polis</a>, designed and built by AI agents: people share short statements and vote agree/disagree on each other's, while a live <strong>opinion map</strong> shows where the group splits into camps — and where it actually agrees. Share one link to start.</p>
       <div class="actions hero-actions">
-        <a class="button primary" href="#create">Start a conversation</a>
-        <a class="button" href="/r/3ovoxq5c6o?lang=en">See the demo</a>
+        <a class="button primary" href="#create">Start in one step</a>
+        <a class="button" href="/r/qx7fc5m3ql?lang=en">See the demo</a>
       </div>
-      <p class="trust-line">Open source (MIT) · Anonymous, no tracking · Your data is fully exportable · Clustering validated against official Polis open data</p>
+      <div class="check-row">
+        <span>No sign-ups</span>
+        <span>Anonymous, no tracking</span>
+        <span>Open source (MIT)</span>
+        <span>Your data is exportable</span>
+      </div>
     </div>
     <div class="hero-figure" aria-hidden="true">
-      <svg viewBox="0 0 320 240" xmlns="http://www.w3.org/2000/svg">
-        <rect x="1" y="1" width="318" height="238" rx="12" fill="var(--surface)" stroke="var(--border)"/>
-        <g fill="var(--group-1)" fill-opacity="0.75">
-          <circle cx="70" cy="88" r="6"/><circle cx="95" cy="70" r="6"/><circle cx="58" cy="120" r="6"/>
-          <circle cx="88" cy="112" r="6"/><circle cx="112" cy="92" r="6"/><circle cx="76" cy="150" r="6"/>
-          <circle cx="104" cy="138" r="6"/><circle cx="52" cy="66" r="6"/><circle cx="126" cy="118" r="6"/>
+      <svg viewBox="0 0 380 330" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="378" height="328" rx="16" fill="var(--surface)" stroke="var(--border)"/>
+        <rect x="1" y="1" width="378" height="34" rx="16" fill="var(--surface-2)"/>
+        <rect x="1" y="19" width="378" height="16" fill="var(--surface-2)"/>
+        <circle cx="22" cy="18" r="4" fill="#f87171"/><circle cx="38" cy="18" r="4" fill="#fbbf24"/><circle cx="54" cy="18" r="4" fill="#34d399"/>
+        <rect x="120" y="10" width="140" height="16" rx="8" fill="var(--bg)" stroke="var(--border)"/>
+        <text x="190" y="22" text-anchor="middle" font-size="9" fill="var(--muted)">polis.mashbean.net</text>
+        <path d="M 52 128 Q 60 84 106 86 Q 152 88 150 128 Q 148 170 100 172 Q 56 172 52 128 Z" fill="var(--group-1)" fill-opacity="0.09" stroke="var(--group-1)" stroke-opacity="0.4" stroke-width="1.2" stroke-dasharray="5 5"/>
+        <path d="M 228 132 Q 234 88 282 88 Q 330 90 328 132 Q 326 174 278 176 Q 232 176 228 132 Z" fill="var(--group-0)" fill-opacity="0.09" stroke="var(--group-0)" stroke-opacity="0.4" stroke-width="1.2" stroke-dasharray="5 5"/>
+        <g fill="var(--group-1)" stroke="var(--surface)" stroke-width="1.3">
+          <circle cx="82" cy="106" r="5.5"/><circle cx="112" cy="100" r="5.5"/><circle cx="70" cy="132" r="5.5"/>
+          <circle cx="100" cy="128" r="5.5"/><circle cx="126" cy="120" r="5.5"/><circle cx="86" cy="152" r="5.5"/>
+          <circle cx="116" cy="148" r="5.5"/>
         </g>
-        <g fill="var(--group-0)" fill-opacity="0.75">
-          <circle cx="222" cy="94" r="6"/><circle cx="248" cy="78" r="6"/><circle cx="210" cy="126" r="6"/>
-          <circle cx="240" cy="116" r="6"/><circle cx="264" cy="100" r="6"/><circle cx="228" cy="152" r="6"/>
-          <circle cx="256" cy="140" r="6"/><circle cx="204" cy="72" r="6"/><circle cx="276" cy="124" r="6"/>
+        <g fill="var(--group-0)" stroke="var(--surface)" stroke-width="1.3">
+          <circle cx="256" cy="108" r="5.5"/><circle cx="286" cy="102" r="5.5"/><circle cx="246" cy="136" r="5.5"/>
+          <circle cx="276" cy="130" r="5.5"/><circle cx="304" cy="122" r="5.5"/><circle cx="262" cy="156" r="5.5"/>
+          <circle cx="292" cy="150" r="5.5"/>
         </g>
-        <circle cx="88" cy="108" r="24" fill="none" stroke="var(--group-1)" stroke-width="2" stroke-dasharray="4 4"/>
-        <circle cx="240" cy="112" r="24" fill="none" stroke="var(--group-0)" stroke-width="2" stroke-dasharray="4 4"/>
-        <text x="88" y="63" text-anchor="middle" font-size="12" font-weight="700" fill="var(--group-1)">B</text>
-        <text x="240" y="63" text-anchor="middle" font-size="12" font-weight="700" fill="var(--group-0)">A</text>
-        <text x="160" y="130" text-anchor="middle" font-size="15" fill="var(--text)">★</text>
-        <rect x="86" y="188" width="148" height="26" rx="13" fill="var(--agree)" fill-opacity="0.15" stroke="var(--agree)"/>
-        <text x="160" y="205" text-anchor="middle" font-size="12" fill="var(--agree)">Consensus 83%</text>
+        <rect x="70" y="56" width="62" height="20" rx="10" fill="var(--surface)" stroke="var(--group-1)" stroke-width="1.2"/>
+        <text x="101" y="70" text-anchor="middle" font-size="10" font-weight="700" fill="var(--group-1)">Group B · 53</text>
+        <rect x="246" y="58" width="62" height="20" rx="10" fill="var(--surface)" stroke="var(--group-0)" stroke-width="1.2"/>
+        <text x="277" y="72" text-anchor="middle" font-size="10" font-weight="700" fill="var(--group-0)">Group A · 60</text>
+        <circle cx="190" cy="128" r="9" fill="none" stroke="var(--text)" stroke-width="1.4"/>
+        <text x="190" y="132.5" text-anchor="middle" font-size="11" fill="var(--text)">★</text>
+        <rect x="36" y="206" width="308" height="44" rx="10" fill="var(--surface-2)" stroke="var(--border)"/>
+        <text x="52" y="224" font-size="10" fill="var(--muted)">Common ground</text>
+        <text x="52" y="240" font-size="11" fill="var(--text)">Fund civil resilience alongside procurement</text>
+        <rect x="266" y="216" width="64" height="20" rx="10" fill="var(--agree)" fill-opacity="0.12" stroke="var(--agree)"/>
+        <text x="298" y="230" text-anchor="middle" font-size="10" font-weight="700" fill="var(--agree)">83% agree</text>
+        <rect x="36" y="262" width="150" height="40" rx="10" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="52" y="280" font-size="14" font-weight="700" fill="var(--text)">113</text>
+        <text x="52" y="294" font-size="9" fill="var(--muted)">Participants</text>
+        <rect x="194" y="262" width="150" height="40" rx="10" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="210" y="280" font-size="14" font-weight="700" fill="var(--text)">2,712</text>
+        <text x="210" y="294" font-size="9" fill="var(--muted)">Votes</text>
       </svg>
     </div>
   </div>
@@ -82,15 +108,15 @@
 
   <h2>Demo: a simulated defense-budget referendum</h2>
   <div class="card">
-    <p>113 <strong>fictional</strong> legislators (pseudonyms from Taiwanese wildlife and landscapes — no real names) were simulated according to Taiwan's actual party-seat structure. The map splits 62:51 along the "dialogue vs. deterrence" fault line — yet five statements about <strong>transparency, oversight, and civil resilience</strong> reach 67–83% cross-group consensus.</p>
-    <p class="muted">The conversation is open: your votes change the map in real time. Method notes in the <a href="https://github.com/mashbean/polis-serverless/blob/main/docs/demo-legislature-sim.md">case write-up</a>.</p>
+    <p>113 <strong>fictional</strong> legislators (pseudonyms from Taiwanese wildlife and landscapes — no real names) were simulated according to Taiwan's actual party-seat structure. The map splits 60:53 along the "dialogue vs. deterrence" fault line — yet statements about <strong>transparency, oversight, and civil resilience</strong> reach broad cross-group consensus.</p>
+    <p class="muted">The conversation is open: your votes change the map in real time. Method notes in the <a href="https://github.com/mashbean/pocket-polis/blob/main/docs/demo-legislature-sim.md">case write-up</a>.</p>
     <div class="actions">
-      <a class="button primary" href="/c/3ovoxq5c6o?lang=en">Join the voting</a>
-      <a class="button" href="/r/3ovoxq5c6o?lang=en">See the map & consensus</a>
+      <a class="button primary" href="/c/qx7fc5m3ql?lang=en">Join the voting</a>
+      <a class="button" href="/r/qx7fc5m3ql?lang=en">See the map &amp; consensus</a>
     </div>
   </div>
 
-  <h2 id="create">Start a conversation</h2>
+  <h2 id="create">Start in one step</h2>
   <p class="muted">You can use this public demo site directly (for your own site and data, see <a href="#self-host">Host your own</a>).</p>
   <form id="create-form" class="card">
     <label for="title">Topic</label>
@@ -127,48 +153,43 @@
     </div>
   </section>
 
-  <h2 id="self-host">Host your own (no servers, no ops)</h2>
-  <p>When you want your own URL and your own data, deploy it to your own Cloudflare account. The <strong>free plan is enough</strong> for conversations with hundreds of participants, and your data stays in your account — fully downloadable at any time. Three paths:</p>
+  <h2 id="self-host">Host your own</h2>
+  <p>When you want your own URL and your own data, hand it to your AI assistant and it will be running on your own Cloudflare account within minutes. The <strong>free plan is enough</strong> for conversations with hundreds of participants, and your data stays in your account — fully downloadable at any time.</p>
 
   <div class="card">
-    <h3>A · Hand it to your AI assistant</h3>
-    <p>Paste this to Claude Code, Cursor, or any coding assistant. You complete one browser login to Cloudflare; it does everything else.</p>
-    <pre id="agent-prompt">Follow https://github.com/mashbean/polis-serverless/blob/main/AGENT.md to deploy polis-serverless to my Cloudflare account (I will complete the wrangler login step myself), then create my first conversation via the API.</pre>
+    <h3>Hand it to your AI assistant</h3>
+    <ol class="steps-plain">
+      <li>No Cloudflare account yet? Sign up free at <a href="https://dash.cloudflare.com/sign-up">dash.cloudflare.com/sign-up</a> (email only).</li>
+      <li>Paste the prompt below to Claude Code, Cursor, or any coding assistant.</li>
+      <li>It will ask you to complete one browser login to Cloudflare — the only step you do yourself.</li>
+    </ol>
+    <pre id="agent-prompt">Follow https://github.com/mashbean/pocket-polis/blob/main/AGENT.md to deploy Pocket Polis to my Cloudflare account (I will complete the wrangler login step myself), then create my first conversation via the API.</pre>
     <div class="actions">
       <button type="button" data-copy="agent-prompt">Copy this prompt</button>
-      <a class="button" href="https://github.com/mashbean/polis-serverless/blob/main/AGENT.md">Read AGENT.md</a>
+      <a class="button" href="https://github.com/mashbean/pocket-polis/blob/main/AGENT.md">Read AGENT.md</a>
     </div>
-  </div>
-
-  <div class="card">
-    <h3>B · One-click deploy</h3>
-    <p>Log into Cloudflare, click the button, and it forks and deploys the code for you.</p>
-    <div class="actions">
-      <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/polis-serverless"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"></a>
-    </div>
-  </div>
-
-  <div class="card">
-    <h3>C · Six commands in a terminal</h3>
-    <pre id="manual-steps">git clone https://github.com/mashbean/polis-serverless.git
-cd polis-serverless
+    <details class="plain-box">
+      <summary>Prefer a terminal? Six commands</summary>
+      <pre id="manual-steps">git clone https://github.com/mashbean/pocket-polis.git
+cd pocket-polis
 npm install
 npx wrangler login
 npm run check
 npm run deploy</pre>
-    <div class="actions">
-      <button type="button" data-copy="manual-steps">Copy commands</button>
-    </div>
+      <div class="actions">
+        <button type="button" data-copy="manual-steps">Copy commands</button>
+      </div>
+    </details>
   </div>
 
   <h2>FAQ</h2>
   <details class="faq">
     <summary>Really no server?</summary>
-    <p>Really. "Serverless" means <strong>no machine you have to look after</strong> — no hosting to rent, no database to back up, nothing to reboot at 3am. The code runs on Cloudflare's cloud, works only when someone votes, and costs nothing at rest. The full technical discussion (including the alternatives we weighed) is in <a href="https://github.com/mashbean/polis-serverless/blob/main/docs/is-this-serverless.md">this document</a> (zh).</p>
+    <p>Really. "Serverless" means <strong>no machine you have to look after</strong> — no hosting to rent, no database to back up, nothing to reboot at 3am. The code runs on Cloudflare's cloud, works only when someone votes, and costs nothing at rest. The full technical discussion (including the alternatives we weighed) is in <a href="https://github.com/mashbean/pocket-polis/blob/main/docs/is-this-serverless.md">this document</a> (zh).</p>
   </details>
   <details class="faq">
     <summary>Are participants identified?</summary>
-    <p>No. No registration, no email; the browser keeps only a random code to prevent double counting, and neither the report nor the exports contain any identity. Honest caveat: this lightweight approach can't stop determined ballot-stuffing — it suits communities, classrooms, and workshops with basic trust. For adversarial public consultations, use official pol.is.</p>
+    <p>No. No registration, no email; the browser keeps only a random code to prevent double counting, and neither the report nor the exports contain any identity. Note: this lightweight approach can't stop determined ballot-stuffing — it suits communities, classrooms, and workshops with basic trust. For adversarial public consultations, use official pol.is.</p>
   </details>
   <details class="faq">
     <summary>How many participants do I need?</summary>
@@ -176,16 +197,23 @@ npm run deploy</pre>
   </details>
   <details class="faq">
     <summary>How is this different from official pol.is?</summary>
-    <p>Official pol.is is a mature large-scale platform that needs an engineering team to self-host. polis-serverless reimplements the same clustering method from the published literature — validated against official open datasets (group counts match; Adjusted Rand Index 0.78–0.86) — in exchange for one-click, free deployment. Not affiliated with The Computational Democracy Project.</p>
+    <p>Official pol.is is a mature large-scale platform that needs an engineering team to self-host. Pocket Polis reimplements the same clustering method from the published literature — validated against official open datasets (group counts match; Adjusted Rand Index 0.78–0.86) — in exchange for one-step, free deployment. Not affiliated with The Computational Democracy Project.</p>
   </details>
   <details class="faq">
     <summary>Where does the data live? Can I take it with me?</summary>
     <p>In the deployer's own Cloudflare account, each conversation isolated. The host can download the full statement list and anonymized vote records as CSV at any time, or make the export public.</p>
   </details>
+  <details class="faq">
+    <summary>Does the demo site have rules?</summary>
+    <p>Yes. Conversations involving harassment, hate speech, illegal content, personal-data exposure, or coordinated manipulation may be taken down by the site operator (mashbean) — see the <a href="https://github.com/mashbean/pocket-polis/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a>. Self-hosted instances set their own rules.</p>
+  </details>
 </main>
 <footer>
-  <p><a href="/en/guide">Facilitator guide</a> · <a href="https://github.com/mashbean/polis-serverless">Source</a> (MIT) · <a href="/">中文</a><br>
-  The clustering method is reimplemented from the published Polis literature; not affiliated with The Computational Democracy Project's pol.is. Validation data: compdemocracy openData (CC BY 4.0).</p>
+  <div class="inner">
+    <p><a href="/en/guide">Facilitator guide</a> · <a href="https://github.com/mashbean/pocket-polis">Source</a> (MIT) · <a href="https://github.com/mashbean/pocket-polis/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a> · <a href="/">中文</a><br>
+    Pocket Polis reimplements the clustering method from the published Polis literature; not affiliated with The Computational Democracy Project's pol.is. Validation data: compdemocracy openData (CC BY 4.0).</p>
+    <p class="credit">Created and maintained by <a href="https://github.com/mashbean">mashbean</a></p>
+  </div>
 </footer>
 <script type="module" src="/js/create.js"></script>
 </body>

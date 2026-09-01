@@ -21,6 +21,8 @@ export interface PipelineInput {
   /** 已核准陳述的 id */
   statementIds: number[];
   computedAt: number;
+  /** 前一次結果的群數（k-smoothing：差距在 buffer 內時保留） */
+  previousK?: number | null;
 }
 
 export function computeMath(input: PipelineInput): PipelineOutput {
@@ -54,7 +56,7 @@ export function computeMath(input: PipelineInput): PipelineOutput {
 
   const comps = powerPCA(matrix.centered, statementIds.length, rng);
   const projected = projectParticipants(matrix, comps);
-  const grouping = chooseGroups(projected, rng);
+  const grouping = chooseGroups(projected, rng, input.previousK ?? null);
 
   // 依群大小重新編號（最大的是 A），視覺與敘事穩定
   const sizes = new Array<number>(grouping.k).fill(0);

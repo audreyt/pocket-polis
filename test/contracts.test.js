@@ -45,7 +45,7 @@ describe("package.json", () => {
   });
 
   it("CLI bin 指向 install-skill 腳本", () => {
-    expect(pkg.bin["polis-serverless"]).toBe("./scripts/cli.mjs");
+    expect(pkg.bin["pocket-polis"]).toBe("./scripts/cli.mjs");
   });
 
   it("check 腳本涵蓋 typecheck、測試與 dry-run 部署", () => {
@@ -59,7 +59,7 @@ describe("package.json", () => {
 describe("README", () => {
   it("Deploy Button 指向本 repo", () => {
     expect(readme).toContain(
-      "https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/polis-serverless",
+      "https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/pocket-polis",
     );
   });
 
@@ -70,6 +70,28 @@ describe("README", () => {
   it("指向線上展示站與 AGENT.md", () => {
     expect(readme).toContain("https://polis.mashbean.net");
     expect(readme).toContain("AGENT.md");
+  });
+});
+
+describe("品牌與公開版要求", () => {
+  it("landing 有一鍵發起與署名，且不再有 Deploy Button", () => {
+    const zh = read("public/index.html");
+    expect(zh).toContain("一鍵發起");
+    expect(zh).toContain("Created and maintained by");
+    expect(zh).not.toContain("deploy.workers.cloudflare.com/button");
+  });
+
+  it("行為準則存在且含下架規範", () => {
+    const coc = read("CODE_OF_CONDUCT.md");
+    expect(coc).toContain("mashbean");
+    expect(coc).toMatch(/下架|take down/);
+  });
+
+  it("品牌名稱中英並列（中文頁）", () => {
+    const zh = read("public/index.html");
+    expect(zh).toContain("Pocket Polis");
+    expect(zh).toContain("口袋審議");
+    expect(zh).toContain("A pocket tool for deliberation, anytime");
   });
 });
 
@@ -98,7 +120,7 @@ describe("agent 引導檔案", () => {
     const agent = read("AGENT.md");
     expect(agent).toContain("wrangler login");
     expect(agent).toContain("/api/conversations");
-    const skill = read("skills/polis-serverless/SKILL.md");
-    expect(skill).toMatch(/^---\nname: polis-serverless/);
+    const skill = read("skills/pocket-polis/SKILL.md");
+    expect(skill).toMatch(/^---\nname: pocket-polis/);
   });
 });

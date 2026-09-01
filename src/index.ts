@@ -81,8 +81,7 @@ function withSecurityHeaders(response: Response): Response {
       "default-src 'none'",
       "script-src 'self'",
       "style-src 'self'",
-      // deploy.workers.cloudflare.com 是首頁 Deploy Button 的徽章圖
-      "img-src 'self' data: https://deploy.workers.cloudflare.com",
+      "img-src 'self' data:",
       "connect-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'none'",

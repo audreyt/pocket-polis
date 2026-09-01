@@ -171,6 +171,25 @@ export interface GroupingResult {
   silhouette: number | null;
 }
 
+// k-smoothing（官方 polis 行為）：k 只有在新的 silhouette 明顯更好時才改變，
+// 避免每次重算群數跳動。
+export const K_SMOOTHING_BUFFER = 0.02;
+
+/** 從各 k 的 silhouette 分數中選 k：預設取最高分；前一次的 k 在差距
+ * 未超過 buffer 時優先保留。 */
+export function selectK(
+  scores: { k: number; sil: number }[],
+  previousK: number | null,
+): number {
+  let best = scores[0]!;
+  for (const s of scores) if (s.sil > best.sil) best = s;
+  if (previousK !== null) {
+    const prev = scores.find((s) => s.k === previousK);
+    if (prev && best.sil - prev.sil <= K_SMOOTHING_BUFFER) return prev.k;
+  }
+  return best.k;
+}
+
 /**
  * 官方 polis 的兩段式分群：參與者超過 100 人時先做 k=100 的 base
  * clustering，再對 base center（以群大小加權）做 2..5 群的分群，
@@ -178,7 +197,11 @@ export interface GroupingResult {
  * （偏差：官方對 base center 算 silhouette 時的加權細節未公開，
  * 這裡用未加權 silhouette。）
  */
-export function chooseGroups(points: Point[], rng: () => number): GroupingResult {
+export function chooseGroups(
+  points: Point[],
+  rng: () => number,
+  previousK: number | null = null,
+): GroupingResult {
   const n = points.length;
   if (n === 0) return { k: 0, assignments: [], centers: [], silhouette: null };
 
@@ -204,13 +227,12 @@ export function chooseGroups(points: Point[], rng: () => number): GroupingResult
   }
 
   const kMax = Math.min(5, distinct, basePoints.length - 1);
-  let best: { k: number; result: KMeansResult; sil: number } | null = null;
+  const candidates: { k: number; result: KMeansResult; sil: number }[] = [];
   for (let k = 2; k <= kMax; k++) {
     const result = kmeans(basePoints, baseWeights, k, rng);
-    const sil = silhouette(basePoints, result.assignments, k);
-    if (!best || sil > best.sil) best = { k, result, sil };
+    candidates.push({ k, result, sil: silhouette(basePoints, result.assignments, k) });
   }
-  if (!best) {
+  if (candidates.length === 0) {
     return {
       k: 1,
       assignments: new Array(n).fill(0),
@@ -219,9 +241,12 @@ export function chooseGroups(points: Point[], rng: () => number): GroupingResult
     };
   }
 
+  const chosenK = selectK(candidates.map(({ k, sil }) => ({ k, sil })), previousK);
+  const best = candidates.find((c) => c.k === chosenK)!;
+
   let assignments: number[];
   if (baseAssignOfParticipant) {
-    assignments = baseAssignOfParticipant.map((b) => best!.result.assignments[b]!);
+    assignments = baseAssignOfParticipant.map((b) => best.result.assignments[b]!);
   } else {
     assignments = best.result.assignments;
   }

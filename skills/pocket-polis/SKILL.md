@@ -1,15 +1,15 @@
 ---
-name: polis-serverless
-description: Run a complete Polis-style wikisurvey round (statements, agree/disagree voting, PCA+k-means opinion clustering, consensus report) on the user's own Cloudflare account with zero servers. Use when the user wants to host a Polis conversation, deploy polis-serverless, create or moderate a conversation, seed simulated participants, or export/analyze the anonymized vote data.
+name: pocket-polis
+description: Run a complete Polis-style wikisurvey round (statements, agree/disagree voting, PCA+k-means opinion clustering, consensus report) on the user's own Cloudflare account with zero servers. Use when the user wants to host a Polis conversation, deploy Pocket Polis, create or moderate a conversation, seed simulated participants, or export/analyze the anonymized vote data.
 ---
 
-# polis-serverless
+# Pocket Polis
 
 Use this skill when a user wants their own Polis-style opinion survey without hosting servers.
 
 ## Required reading
 
-Read `AGENT.md` in the repository root (https://github.com/mashbean/polis-serverless/blob/main/AGENT.md) before acting. It contains the deploy workflow, the full API table, and the safety rules.
+Read `AGENT.md` in the repository root (https://github.com/mashbean/pocket-polis/blob/main/AGENT.md) before acting. It contains the deploy workflow, the full API table, and the safety rules.
 
 ## Workflow
 

@@ -1,17 +1,17 @@
 {
-  "name": "@mashbean/polis-serverless",
+  "name": "@mashbean/pocket-polis",
   "version": "0.1.0",
-  "description": "A complete Polis-style wikisurvey round (statements, voting, opinion clustering, consensus) on a single Cloudflare Worker with Durable Object SQLite — no server to host",
+  "description": "Pocket Polis (口袋審議): a lightweight Polis, designed and deployable in one step by AI agents — a complete wikisurvey round on a single Cloudflare Worker, no server to host",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mashbean/polis-serverless.git"
+    "url": "git+https://github.com/mashbean/pocket-polis.git"
   },
-  "bugs": "https://github.com/mashbean/polis-serverless/issues",
+  "bugs": "https://github.com/mashbean/pocket-polis/issues",
   "homepage": "https://polis.mashbean.net/",
   "bin": {
-    "polis-serverless": "./scripts/cli.mjs"
+    "pocket-polis": "./scripts/cli.mjs"
   },
   "scripts": {
     "dev": "wrangler dev",

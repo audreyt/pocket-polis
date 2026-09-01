@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildMatrix, inclusionThreshold } from "../src/math/matrix";
-import { chooseGroups, kmeans, silhouette } from "../src/math/kmeans";
+import { chooseGroups, K_SMOOTHING_BUFFER, kmeans, selectK, silhouette } from "../src/math/kmeans";
 import { computeMath } from "../src/math/pipeline";
 import { propTest, twoPropTest, Z_90 } from "../src/math/repness";
 import { hashSeed, mulberry32 } from "../src/math/rng";
@@ -80,6 +80,18 @@ describe("kmeans 與 silhouette", () => {
     ];
     const result = chooseGroups(points, rng);
     expect(result.k).toBe(2);
+  });
+
+  it("selectK：k-smoothing 在差距未超過 buffer 時保留前一次的 k", () => {
+    const scores = [
+      { k: 2, sil: 0.4 },
+      { k: 3, sil: 0.41 },
+      { k: 4, sil: 0.3 },
+    ];
+    expect(selectK(scores, null)).toBe(3); // 無歷史：取最高
+    expect(selectK(scores, 2)).toBe(2); // 差 0.01 ≤ buffer：保留
+    expect(selectK([{ k: 2, sil: 0.3 }, { k: 3, sil: 0.3 + K_SMOOTHING_BUFFER + 0.01 }], 2)).toBe(3); // 超過 buffer：換
+    expect(selectK(scores, 5)).toBe(3); // 歷史 k 不在候選中：取最高
   });
 
   it("點太少時不分群", () => {

@@ -1,6 +1,8 @@
 # Demo 案例：【模擬】國防軍購特別預算公投（2026-09-01）
 
-線上展示：<https://polis.mashbean.net/r/3ovoxq5c6o>（結果頁）· <https://polis.mashbean.net/c/3ovoxq5c6o>(參與頁)
+線上展示：<https://polis.mashbean.net/r/3ovoxq5c6o>（結果頁）· <https://polis.mashbean.net/c/3ovoxq5c6o>（參與頁）
+
+English demo（同一模型、英文種子意見，2026-09-01 播種，60:53 分群）：<https://polis.mashbean.net/r/qx7fc5m3ql?lang=en>。跑法：`node scripts/seed-demo-legislature.mjs <base-url> --lang en`。
 
 ## 這是什麼（以及不是什麼）
 
