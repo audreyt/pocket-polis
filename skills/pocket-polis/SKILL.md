@@ -18,7 +18,7 @@ Read `AGENT.md` in the repository root (https://github.com/mashbean/pocket-polis
 3. For a new conversation: draft 5–15 seed statements with the user (single-idea, votable sentences, ≤280 chars), pick moderation mode (`autoApprove`) and data openness (`openData`), then `POST /api/conversations`. Hand the admin link (`/a/:id#token=…`) to the user privately — the token is shown once and cannot be recovered.
 4. Share the participate link (`/c/:id`) and report link (`/r/:id`). Clustering appears at 4+ participants who each voted min(7, statements) times.
 5. For simulations: follow `scripts/seed-demo-legislature.mjs` as the template — fictional pseudonyms only, and the conversation title/description must state it is simulated.
-6. For analysis: export `votes.csv` (anonymized long format) and cross-validate with red-dwarf or the repo's `scripts/validate-opendata.ts` methodology.
+6. For analysis: export `comments.csv` (pol.is-compatible — upload it as-is to vTaiwan Sensemaker at https://make.vtaiwan.tw/ for AI-assisted synthesis), or `votes.csv` (anonymized long format) to cross-validate with red-dwarf or the repo's `scripts/validate-opendata.ts` methodology.
 
 ## Safety limits
 

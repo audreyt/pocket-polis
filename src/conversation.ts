@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { computeMath } from "./math/pipeline";
+import { csvEscape, formatCommentsCsv } from "./export";
 import type { MathResult, OpinionPoint, VoteRow, VoteValue } from "./math/types";
 
 export interface ConversationSettings {
@@ -584,6 +585,32 @@ export class Conversation extends DurableObject<Env> {
     return [header, ...lines].join("\n") + "\n";
   }
 
+  /**
+   * pol.is 相容的 comments.csv（issue #1，供 Sensemaker 等工具直接讀取）。
+   * author-id 用參與者加入順序流水號（同 votes.csv 的 p1、p2⋯ 去掉前綴），種子意見（主持人建立）為 0；
+   * 含全部審核狀態，以 moderated 欄區分（1 / 0 / -1），與 statements.csv 一致。
+   */
+  async exportCommentsCsv(token: string | null): Promise<string | null> {
+    if (!(await this.canExport(token))) return null;
+    const rows = this.sql()
+      .exec(
+        `SELECT s.sid, s.text, s.status, s.created_at, s.agrees, s.disagrees, COALESCE(p.seq, 0) AS author
+         FROM statements s LEFT JOIN participants p ON p.pid = s.submitter_pid
+         ORDER BY s.sid`,
+      )
+      .toArray()
+      .map((r) => ({
+        sid: Number(r.sid),
+        text: String(r.text),
+        status: String(r.status),
+        authorId: Number(r.author),
+        agrees: Number(r.agrees),
+        disagrees: Number(r.disagrees),
+        createdAt: Number(r.created_at),
+      }));
+    return formatCommentsCsv(rows);
+  }
+
   /** 長格式投票匯出。參與者以加入順序匿名化為 p1、p2⋯，不輸出 pid。 */
   async exportVotesCsv(token: string | null): Promise<string | null> {
     if (!(await this.canExport(token))) return null;
@@ -624,9 +651,4 @@ function sanitizeAltUrl(raw: string): string {
   const trimmed = raw.trim().slice(0, 300);
   if (/^https:\/\/\S+$/.test(trimmed) || /^\/\S*$/.test(trimmed)) return trimmed;
   return "";
-}
-
-function csvEscape(text: string): string {
-  if (/[",\n\r]/.test(text)) return `"${text.replaceAll('"', '""')}"`;
-  return text;
 }
