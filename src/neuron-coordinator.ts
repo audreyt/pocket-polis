@@ -14,7 +14,7 @@ export function utcDayKey(now: number): string {
 }
 
 export function parseDailyNeuronState(raw: unknown): DailyNeuronState | "absent" | "malformed" {
-  if (raw == null || raw === "") return "absent";
+  if (raw == null) return "absent";
   let value: unknown = raw;
   if (typeof raw === "string") {
     try {

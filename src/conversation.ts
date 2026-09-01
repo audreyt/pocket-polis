@@ -12,6 +12,7 @@ import {
   generateDeterministicSensemaking,
   generateSensemaking,
   inferSourceLanguage,
+  isSynthesisPrivacyCurrent,
   type SensemakingResponse,
   type SensemakingSynthesis,
 } from "./sensemaking";
@@ -575,7 +576,7 @@ export class Conversation extends DurableObject<Env> {
     now: number,
   ): SensemakingSynthesis {
     const existing = this.readReadySynthesis();
-    if (existing && existing.mathRevision === mathRevision) {
+    if (existing && existing.mathRevision === mathRevision && isSynthesisPrivacyCurrent(existing)) {
       this.setMeta("synthesis_pending", "");
       return existing;
     }
@@ -634,8 +635,21 @@ export class Conversation extends DurableObject<Env> {
       try {
         cached = JSON.parse(rawCache) as SensemakingSynthesis;
         if (cached && cached.status === "ready") {
-          // 舊快取可能含小群畫像／張力／Distinctive 主題／keyStance／逐格抑制之張力引用：
-          // 以當前隱私安全版結果深層再驗證（privacyVersion 用於未來版本追蹤，舊快取亦經此深層過濾）
+          // 舊版快取（含 overview/commonGround/任意主題描述等小群衍生 prose）若 mathRevision 仍匹配會無限期留存：
+          // 以 isSynthesisPrivacyCurrent 判定，非當前版本直接以當前隱私安全版結果的確定性摘要取代
+          if (!isSynthesisPrivacyCurrent(cached)) {
+            const lang = inferSourceLanguage(settings.title, settings.description, statements);
+            const det = this.persistDeterministicReady(
+              lang,
+              settings.title,
+              math.result,
+              statements,
+              currentRevision,
+              now,
+            );
+            return { response: det };
+          }
+          // 當前版本仍需深層隱私再驗證（keyStance、張力引用、Distinctive 主題）
           cached = dropUnreportableGroups(cached, math.result);
         }
       } catch {
