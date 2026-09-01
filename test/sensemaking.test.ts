@@ -1130,8 +1130,14 @@ describe("可報告群：低於 MIN_GROUP_STATS_SIZE 的群不進提示、不被
     expect(res.provenance.groupCount).toBe(3);
   });
 
-  it("確定性 fallback 的畫像只含可報告群", () => {
+  it("確定性 fallback 的畫像與「代表性意見」主題只含可報告群", () => {
     const mathResult = threeGroupMathResult([10, 10, MIN_GROUP_STATS_SIZE - 1]);
+    mathResult.groups[2]!.representative = [
+      { sid: 4, direction: "agree", prob: 0.67, probTest: 0.5, repness: 3, repnessTest: 0.5, metric: 1, nSuccess: 1, nSeen: 1 },
+    ];
+    mathResult.groups[0]!.representative = [
+      { sid: 3, direction: "agree", prob: 0.9, probTest: 1, repness: 3, repnessTest: 1, metric: 1, nSuccess: 10, nSeen: 10 },
+    ];
     const det = generateDeterministicSensemaking({
       lang: "en",
       title: "T",
@@ -1144,6 +1150,12 @@ describe("可報告群：低於 MIN_GROUP_STATS_SIZE 的群不進提示、不被
     for (const tn of det.tensions) {
       expect([tn.groupAId, tn.groupBId]).not.toContain(2);
     }
+    const titles = det.themes.map((t) => t.title);
+    expect(titles).toContain("Distinctive to group A");
+    expect(titles.some((t) => t.includes("group C"))).toBe(false);
+    // 小群的陳述仍由「全部意見」主題涵蓋
+    const all = det.themes.flatMap((t) => t.statementIds);
+    expect(all).toContain(4);
   });
 });
 

@@ -996,6 +996,48 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     expect(aiRun.mock.calls.length).toBe(calls);
   });
 
+  it("a duplicate Queue delivery of the active job while the model call is in flight is a no-op and does not replace the AI result with fallback", async () => {
+    const { ctx } = convCtx();
+    const coord = makeCoordinator();
+    const readMeta = (key: string) =>
+      (ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", key).toArray()[0] as { value: string } | undefined)?.value ?? "";
+    const inner = topicAi();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let firstCall = true;
+    const aiRun = vi.fn(async (model: string, payload: any) => {
+      if (firstCall) {
+        firstCall = false;
+        await gate; // 第一個呼叫卡在模型 await
+      }
+      return inner(model, payload);
+    });
+    const conv = new Conversation(ctx, {
+      AI: { run: aiRun },
+      NEURON_COORDINATOR: { getByName: () => coord },
+    } as any);
+    seedSynthesisReady(conv, ctx, 1000);
+    const first = conv.processSensemakingJob(42, "job-1", 1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    // claim 已由第一個呼叫寫入且記錄 jobId
+    expect(JSON.parse(readMeta(SYNTHESIS_AI_CLAIM_KEY)).jobId).toBe("job-1");
+    // 重複投遞同一 jobId
+    const dup = await conv.processSensemakingJob(42, "job-1", 1500);
+    expect(dup.ok).toBe(true);
+    expect(readMeta("synthesis_data")).toBe("");
+    expect(JSON.parse(readMeta("synthesis_pending")).jobId).toBe("job-1");
+    release();
+    await first;
+    const data = JSON.parse(readMeta("synthesis_data"));
+    expect(data.status).toBe("ready");
+    expect(data.generationMode).not.toBe("deterministic");
+    expect(readMeta("synthesis_pending")).toBe("");
+    // 另一個 jobId 在 claim 窗內仍走 deterministic（既有政策不變）
+  });
+
   it("a cached synthesis generated before the k-anonymity rule drops small-group portraits and tensions when served", async () => {
     const { ctx } = convCtx();
     const conv = new Conversation(ctx, {} as any);

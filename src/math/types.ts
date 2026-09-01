@@ -38,7 +38,7 @@ export interface GroupResult {
   representative: RepresentativeStatement[];
   /**
    * 該群在各陳述上的投票統計（納入分群之參與者）。
-   * 僅在 size >= MIN_GROUP_STATS_SIZE 時出現在公開 /results（見 pipeline.redactSmallGroupStats）。
+   * 公開版只含通過 k-匿名規則的格子（群 >= k、格 seen >= k、餘數 0 或 >= k），見 pipeline.privacySafeMathResult。
    */
   statementStats?: StatementStat[];
   /** 公開版：此群人數低於 k-匿名下限，statementStats 與 representative 已遮蔽 */
