@@ -59,6 +59,7 @@ const STRINGS = {
   "r.aiUnavailable": ["AI 綜整暫時無法提供，量化意見地圖與投票數據不受影響。", "AI synthesis is temporarily unavailable. Quantitative map and voting data remain fully accessible."],
   "r.aiInsufficient": ["尚未形成足夠分群以進行 AI 跨群綜整（需 4 人以上且 2 群以上）。", "Not enough participant clustering yet for AI synthesis (requires 4+ participants and 2+ groups)."],
   "r.aiModelTag": ["模型：Gemma 4 26B", "Model: Gemma 4 26B"],
+  "r.aiModelDeterministic": ["統計摘要（非生成模型）", "Statistical summary (no generative model)"],
   "r.aiGeneratedAt": ["生成於 {time}", "Generated at {time}"],
   "r.aiStale": ["先前分析快照（陳述已更新）", "Previous snapshot (statements updated)"],
   "r.aiStaleNotice": [

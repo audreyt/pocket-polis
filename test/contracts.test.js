@@ -93,6 +93,15 @@ describe("README", () => {
     expect(read("AGENT.md")).toContain("export/{comments,votes,statements}.csv");
     expect(read("public/report.html")).toContain('id="export-comments"');
   });
+
+  it("文件化神經元硬上限與 Queue 分計", () => {
+    expect(readme).toContain("9,000");
+    expect(readme).toContain("UTF-8");
+    expect(readme).toMatch(/not JS `string\.length`/);
+    expect(readme).not.toMatch(/160k char/);
+    expect(readme).toContain("4 Queue operations");
+    expect(readme).toMatch(/not neuron savings/);
+  });
 });
 
 describe("品牌與公開版要求", () => {

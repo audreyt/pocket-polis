@@ -32,7 +32,7 @@ Durable Object「Conversation」（一場討論一個）
 
 單場討論的自架部署完全運行在 Cloudflare Workers 免費額度內：每日 10 萬次請求、1 萬顆 Workers AI 神經元、1 萬次 Queues 操作與 5GB 儲存。零外部付費依賴。AI 審議綜整在資料成功生成後採用 24 小時滾動新鮮度週期（未變更資料永久快取，每日至多背景刷新 1 次；若失敗或遇配額上限則退避至隔日 00:00 UTC 重置），並透過 Workers Cache API 明確白名單進行公開邊緣快取。
 
-**免費神經元預算公式**：Workers AI `@cf/google/gemma-4-26b-a4b-it` 計費為 `輸入 token × 9091 / 1e6 + 輸出 token × 27273 / 1e6`。Prompt 上限明確受控：主題發現 Prompt 依全體陳述在 ~160k 字元預算內衍生單句配額（注意字元數不完全等同 tokenizer token）、歸類每批次上限 50 句（800 句規模最多 16 批次）、最終綜整 Prompt 上限 24 句張力陳述加上共識與各群代表性陳述。硬性 completion token 上限為主題發現 1,200、歸類 16 × 1536 = 24,576、最終綜整 4,096（基準生成共 29,872 completion tokens，若 16 批次全部重試則為 54,448 tokens）。整體設計目標確保單場活躍討論在 24 小時滾動窗口內消耗低於 10,000 顆免費神經元，不宣稱未經實測的固定數值。完整架構分析與討論：[docs/is-this-serverless.md](docs/is-this-serverless.md)。
+**免費神經元硬契約：** `@cf/google/gemma-4-26b-a4b-it` 計費為 `neurons = input_tokens × 9091 / 1e6 + output_tokens × 27273 / 1e6`（[官方價目](https://developers.cloudflare.com/workers-ai/platform/pricing/)）。輸入 token 採保守**上限** `utf8_bytes(system)+utf8_bytes(user)+256`（chat template 開銷）——不是 JS `string.length`，也不是精確 tokenizer 計數。輸出以各次呼叫強制的 `max_tokens` 計（主題發現 2048、歸類批次 1024、最終綜整 4096）。每次 `ai.run` 前同步預留該次最壞神經元，單次生成總帳本上限 **9,000**（低於每日 10,000 免費額）。最終綜整額度先扣留，避免歸類重試吃掉最後一階段。Prompt 以 UTF-8 位元組封頂（發現 240,000、歸類批次 32,000、綜整 48,000），所有陳述 ID 都會保留；共識與張力證據各排序上限 24 筆。若入場或某階段放不進預算，改回可快取的確定性統計摘要（`generationMode: "deterministic"`，`model: "deterministic"`），絕不標成 Gemma。**Queue 是耐久與延遲隔離，不是神經元節省。** 一則 `<64KB` 訊息、`max_retries: 1` 最多 **4 次 Queue 操作**（1 寫 + 2 讀 + 1 刪；成功路徑 3 次），與神經元分開計算。
 ## 快速開始
 
 ```bash

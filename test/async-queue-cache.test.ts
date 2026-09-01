@@ -366,18 +366,22 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
     // 第一次發起：產生 needsEnqueue 與 pending 狀態
     const firstRes = await conv.checkOrStartSynthesis("conv123456", now);
     expect(firstRes.response.status).toBe("ready");
+    expect(firstRes.needsEnqueue).toBeDefined();
     if (firstRes.response.status === "ready") {
       expect(firstRes.response.isStale).toBe(true);
       expect(firstRes.response.refreshPending).toBe(true);
     }
 
-    // 第二次輪詢（3 秒後，仍在 pending timeout 內）：必須維持 refreshPending: true
+    // 第二次輪詢（同一 sourceRevision、仍在 pending timeout 內）：不得再次 enqueue
     const secondRes = await conv.checkOrStartSynthesis("conv123456", now + 3000);
     expect(secondRes.response.status).toBe("ready");
+    expect(secondRes.needsEnqueue).toBeUndefined();
     if (secondRes.response.status === "ready") {
       expect(secondRes.response.isStale).toBe(true);
       expect(secondRes.response.refreshPending).toBe(true);
     }
+    expect(firstRes.needsEnqueue?.jobId).toBeDefined();
+    expect(firstRes.needsEnqueue?.sourceRevision).toBe(2000);
   });
 
   it("meta revision 未變但 math.result.computedAt 改變時（滿 24h）能正確判定 stale 並觸發 enqueue", async () => {

@@ -66,23 +66,25 @@
 ### 1. 四階段結構化綜整
 
 1. **主題發現（Topic Discovery）**：
-   - 以確定性穩定順序輸入陳述，依 ~160k 字元預算衍生每句配額（注意字元數不完全等同 tokenizer token），由模型歸納 3–7 個語意互斥主題（保留 `other` ID 避免衝突）。`max_completion_tokens: 1200`。
+   - 以確定性穩定順序輸入陳述。Prompt 以 UTF-8 位元組封頂（`DISCOVERY_PROMPT_MAX_BYTES = 240_000`），所有陳述 ID 都會保留，正文在 UTF-8 邊界截斷。模型歸納 3–7 個語意互斥主題（保留 `other` ID 避免衝突）。`max_tokens: 2048`。
 2. **陳述歸類（Categorization）**：
-   - 以 50 筆為一批次進行有限並行分類（並行上限 3），`max_completion_tokens: 1536`。
-   - 支援主要主題與選填次要主題，去重後之聯集計入 `theme.statementIds`。未歸類成功者重試 1 次，仍遺漏者確定性指派至 `other` 主題，絕不隨機分配，無損保留所有陳述。
+   - 以 50 筆為一批次進行有限並行分類（並行上限 3），`max_tokens: 1024`。每批 Prompt ≤ 32,000 UTF-8 bytes。
+   - 支援主要主題與選填次要主題，去重後之聯集計入 `theme.statementIds`。未歸類成功者在額度仍夠時重試 1 次，仍遺漏者確定性指派至 `other`。
 3. **群體感知證據池（Evidence Buckets）**：
-   - **共識候選集**：交集數學管線方向與 Jigsaw `SummaryStats.minCommonGroundProb = 0.60` 規範（每群偽機率 $(succ+1)/(seen+2) \ge 0.60$；零觀測值為 0.5 自動 fail closed）。
-   - **分歧張力集**：納入各群代表性陳述與跨群同意率極差 $\ge 35\%$ 之陳述；送入 Prompt 時依真實跨群同意率極大差距（inter-group agree-rate gap）排序，並以代表性陳述/SID 確定性 tie-break 限制上限（前 24 筆），防止 800 句時第三階段 Prompt 爆炸。
+   - **共識候選集**：交集數學管線方向與 Jigsaw `SummaryStats.minCommonGroundProb = 0.60` 規範（每群偽機率 $(succ+1)/(seen+2) \ge 0.60$；零觀測值為 0.5 自動 fail closed）。送入 Prompt 前依跨群 min-p 排序，上限 24 筆。
+   - **分歧張力集**：納入各群代表性陳述與跨群同意率極差 $\ge 35\%$ 之陳述；依跨群同意率極大差距排序，代表性/SID tie-break，上限 24 筆。
 4. **嚴格引用審議綜整（Cited Synthesis）**：
+   - `max_tokens: 4096`，system+user ≤ 48,000 UTF-8 bytes。
    - `overview`：引用必須屬於最終 Prompt 中實際展示的證據聯集（若引用缺失或無效，則中立化為確定性結構句並給予空引用，不保留模型文本）；參與者與投票脈絡採確定性字串。
    - `commonGround`：摘要採確定性統計描述；keyPoints 引用必須全部有效且具有一致的確定性方向（agree 或 disagree，混合方向整條捨棄）。
    - `tensions`：必須指名真實相比較的兩群體 ID (`groupAId` 與 `groupBId`)，引用必須在該兩群均有真實觀測紀錄 (`seen > 0`)。
    - `groupPortraits`：僅在模型於 fallback 介入前具有經檢定之合法代表立場時採納模型標題與摘要描述，否則退回確定性中立標籤。
+   - 入場失敗或階段放不進 9,000 神經元帳本時，回傳 `generationMode: "deterministic"` 的統計摘要（`model: "deterministic"`），可快取為 ready，不標 Gemma。
 
 ### 2. Pocket Polis 免費額度與架構特色
 
-- **原生 Workers AI 模型**：採用 `@cf/google/gemma-4-26b-a4b-it`，計費公式為 `輸入 token × 9091 / 1e6 + 輸出 token × 27273 / 1e6`，硬性 completion token 上限為 29,872（重試極端情況為 54,448），設計目標確保單場活躍討論在 24 小時滾動窗口內消耗低於 10,000 顆免費神經元。
-- **非同步 Queue 排程**：透過 Cloudflare Queues（`pocket-polis-sensemaking`，15 分鐘 consumer wall time，`max_batch_size: 1`, `max_retries: 1`）非同步執行，`GET /api/conversations/:id/synthesis` 立即回應。
-- **24 小時新鮮度週期**：成功生成後以 24 小時滾動窗口提供快取（資料變更時標記 `isStale: true`，滿 24 小時背景刷新 `refreshPending: true`）；若生成失敗則退避至隔日 00:00 UTC 重置。
+- **神經元硬契約（不是平均值）**：`@cf/google/gemma-4-26b-a4b-it` 官方費率 `輸入上限 token × 9091 / 1e6 + max_tokens × 27273 / 1e6`。輸入上限 = `utf8_bytes(system)+utf8_bytes(user)+256`，不是字元數，也不是精確 token。每次 `ai.run` 前同步 `tryReserve`；單次生成天花板 **9,000**（低於每日 10,000 免費額）。最終綜整額度先扣留。
+- **Queue ≠ 神經元節省**：Cloudflare Queues（`pocket-polis-sensemaking`，`max_batch_size: 1`, `max_retries: 1`）只做耐久與延遲隔離。一則 <64KB 訊息最多 **4 次 Queue 操作**（1 寫 + 2 讀 + 1 刪）。成功路徑 3 次。與神經元分屬不同免費額度。
+- **24 小時新鮮度週期**：成功生成後以 24 小時滾動窗口提供快取（資料變更時標記 `isStale: true`，滿 24 小時背景刷新 `refreshPending: true`）；若生成失敗則退避至隔日 00:00 UTC 重置。確定性 fallback 亦為 `status: "ready"`，同樣受 24h 窗約束，不重複 enqueue。
 - **邊緣快取白名單**：透過 Workers Cache API 提供 3s–300s TTL 之邊緣快取，採用嚴格公開白名單（`/`, `/en`, `/guide`, `/en/guide`, `/c/:id`, `/r/:id`, `/api/health`, `/api/conversations/:id` 及 public statements/anonymous results/synthesis），正則化移除所有查詢字串，排除個人化（`?pid=`）、授權標頭、管理端，並支援 `Cache-Control: no-cache` 強制重新整理直通 DO。
 - **零付費依賴**：完全運行在 Cloudflare 免費額度內（10,000 神經元/日、10,000 佇列操作/日）。

@@ -461,6 +461,14 @@ function renderAiOverview(synthesis, mathResult) {
   }
   show(statusBadge, true);
 
+  const modelBadge = document.querySelector(".ai-model-badge");
+  if (modelBadge) {
+    modelBadge.textContent =
+      synthesis.generationMode === "deterministic" || synthesis.model === "deterministic"
+        ? t("r.aiModelDeterministic")
+        : t("r.aiModelTag");
+  }
+
   const cardChildren = [];
   if (synthesis.isStale) {
     cardChildren.push(

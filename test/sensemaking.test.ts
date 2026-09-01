@@ -946,7 +946,7 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     expect(payload.chat_template_kwargs?.enable_thinking).toBe(false);
   });
 
-  it("AI 呼叫拋出異常時回傳 unavailable，不造成 Worker 崩潰", async () => {
+  it("AI 呼叫拋出異常時回傳確定性統計摘要，不宣稱 Gemma、不崩潰", async () => {
     const { mathResult } = createMockMathResult();
     const aiRun = vi.fn().mockRejectedValue(new Error("Cloudflare AI Gateway 429 Rate Limit"));
     const mockAi = { run: aiRun } as unknown as Ai;
@@ -966,7 +966,12 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
       now: 1000,
     });
 
-    expect(res.status).toBe("unavailable");
-    expect(res.reason).toContain("429 Rate Limit");
+    expect(res.status).toBe("ready");
+    if (res.status !== "ready") return;
+    expect(res.generationMode).toBe("deterministic");
+    expect(res.model).toBe("deterministic");
+    expect(res.model).not.toContain("gemma");
+    const covered = new Set(res.themes.flatMap((t) => t.statementIds));
+    expect([...covered].sort((a, b) => a - b)).toEqual([1, 2, 3]);
   });
 });
