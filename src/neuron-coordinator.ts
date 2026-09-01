@@ -66,10 +66,14 @@ export class NeuronCoordinator extends DurableObject<Env> {
   }
 
   /**
-   * Atomically reserve conservative neurons for this UTC day.
-   * Mutates storage before returning true. No refunds.
+   * Atomically reserve conservative neurons for the coordinator's current UTC day.
+   * Billing day is always taken from coordinator-side time at THIS reservation —
+   * never from a caller-supplied timestamp (a long generation must not charge
+   * post-midnight usage to yesterday while Cloudflare meters the new day).
+   * Mutates storage before returning true. No refunds. Fail-closed.
    */
-  async reserve(globalNeurons: number, now: number): Promise<boolean> {
+  async reserve(globalNeurons: number): Promise<boolean> {
+    const now = Date.now();
     return this.ctx.storage.transactionSync(() => {
       const rows = this.sql().exec(`SELECT value FROM meta WHERE key = ?`, DAY_STATE_KEY).toArray();
       const raw = rows.length > 0 ? (rows[0]!.value as string) : null;
@@ -84,3 +88,4 @@ export class NeuronCoordinator extends DurableObject<Env> {
     });
   }
 }
+

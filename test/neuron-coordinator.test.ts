@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { GENERATION_NEURON_CEILING } from "../src/ai-budget";
 import {
   NeuronCoordinator,
@@ -107,30 +108,71 @@ describe("tryReserveDailyNeurons", () => {
 
 describe("NeuronCoordinator.reserve", () => {
   const noon = Date.UTC(2026, 8, 1, 12, 0, 0);
+  const beforeMidnight = Date.UTC(2026, 8, 1, 23, 59, 50);
+  const afterMidnight = Date.UTC(2026, 8, 2, 0, 0, 10);
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("atomically denies over-ceiling concurrent reserves", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(noon);
     const coord = makeCoordinator();
-    const results = await Promise.all([4000, 4000, 4000].map((n) => coord.reserve(n, noon)));
+    const results = await Promise.all([4000, 4000, 4000].map((n) => coord.reserve(n)));
     expect(results.filter(Boolean)).toHaveLength(2);
-    expect(await coord.reserve(1001, noon)).toBe(false);
-    expect(await coord.reserve(1000, noon)).toBe(true);
-    expect(await coord.reserve(1, noon)).toBe(false);
+    expect(await coord.reserve(1001)).toBe(false);
+    expect(await coord.reserve(1000)).toBe(true);
+    expect(await coord.reserve(1)).toBe(false);
   });
 
   it("malformed persisted state fails closed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(noon);
     const sql = new MockSqlStorage();
     sql.exec("INSERT INTO meta (key, value) VALUES (?, ?)", "day", "{not-json");
     const coord = new NeuronCoordinator(
       { storage: { sql, transactionSync: <T>(fn: () => T): T => fn() } },
       {} as Env,
     );
-    expect(await coord.reserve(1, noon)).toBe(false);
+    expect(await coord.reserve(1)).toBe(false);
   });
 
   it("UTC rollover allows a new day's reservation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(noon);
     const coord = makeCoordinator();
-    expect(await coord.reserve(9000, noon)).toBe(true);
-    expect(await coord.reserve(1, noon)).toBe(false);
-    expect(await coord.reserve(50, noon + 24 * 60 * 60 * 1000)).toBe(true);
+    expect(await coord.reserve(9000)).toBe(true);
+    expect(await coord.reserve(1)).toBe(false);
+    vi.setSystemTime(noon + 24 * 60 * 60 * 1000);
+    expect(await coord.reserve(50)).toBe(true);
+  });
+  it("each reservation bills the coordinator clock day, not a fixed job start", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(beforeMidnight);
+    const coord = makeCoordinator();
+
+    // Pre-midnight: fill yesterday's 9,000 ceiling.
+    expect(await coord.reserve(9000)).toBe(true);
+    expect(await coord.reserve(1)).toBe(false);
+
+    // Same coordinator instance, generation still running — clock crosses 00:00 UTC.
+    // Post-midnight reserves MUST open a fresh day; they must not hide under yesterday.
+    vi.setSystemTime(afterMidnight);
+    expect(await coord.reserve(100)).toBe(true);
+    expect(await coord.reserve(8900)).toBe(true);
+    expect(await coord.reserve(1)).toBe(false);
+
+    // Pure helper still accepts explicit now for deterministic unit tests.
+    const pure = tryReserveDailyNeurons(
+      { utcDay: "2026-09-01", reserved: 9000 },
+      50,
+      afterMidnight,
+    );
+    expect(pure.ok).toBe(true);
+    if (!pure.ok) return;
+    expect(pure.next).toEqual({ utcDay: "2026-09-02", reserved: 50 });
   });
 });
+
+

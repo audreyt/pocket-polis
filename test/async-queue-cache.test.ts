@@ -902,7 +902,7 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
 
   it("two conversations share the deployment-wide 9000 cap", async () => {
     const coord = makeCoordinator();
-    expect(await coord.reserve(5000, 1000)).toBe(true);
+    expect(await coord.reserve(5000)).toBe(true);
     const { ctx } = convCtx();
     const aiRun = topicAi();
     const conv = new Conversation(ctx, {
@@ -910,10 +910,11 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
       NEURON_COORDINATOR: { getByName: () => coord },
     } as any);
     seedSynthesisReady(conv, ctx, 1000);
-    await coord.reserve(4000, 1000);
+    await coord.reserve(4000);
     await conv.processSensemakingJob(42, "job-1", 1000);
     expect(aiRun).not.toHaveBeenCalled();
   });
+
 });
 
 describe("Workers Cache 策略與標頭排除矩陣", () => {

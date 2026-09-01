@@ -809,12 +809,13 @@ export class Conversation extends DurableObject<Env> {
         ai: this.env.AI,
         reserveGlobal: async (neurons: number) => {
           try {
-            return await coordinatorNs.getByName(NEURON_COORDINATOR_INSTANCE).reserve(neurons, now);
+            return await coordinatorNs.getByName(NEURON_COORDINATOR_INSTANCE).reserve(neurons);
           } catch {
             return false;
           }
         },
         lang: inferredLang,
+
         title: settings.title,
         description: settings.description,
         mathResult: math.result,
