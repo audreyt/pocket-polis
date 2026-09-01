@@ -772,12 +772,12 @@ export class Conversation extends DurableObject<Env> {
 
   async markSensemakingEnqueueFailed(jobId: string, now: number, reason: string): Promise<void> {
     // 送件失敗沒有消耗成功路徑的 Queue 操作：解除該 revision 的送件標記，退避後允許再送一次
-    this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
     const rawPending = this.getMeta("synthesis_pending");
     if (!rawPending) return;
     try {
       const pending = JSON.parse(rawPending) as { jobId: string };
       if (pending.jobId === jobId) {
+        this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
         this.setMeta("synthesis_pending", "");
         // 短暫佇列傳輸失敗退避 30 秒（非 AI 額度鎖定）
         this.setMeta(
