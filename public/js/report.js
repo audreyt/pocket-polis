@@ -347,6 +347,22 @@ function schedulePendingPoll() {
     try {
       const res = await api(`/api/conversations/${convId}/synthesis?lang=${lang}`);
       if (res) {
+        // 輪詢可能取回不同 mathRevision 的已完成綜整（例如投票／陳述在佇列任務期間變更）：
+        // 若為非 stale 的 ready 且 revision 與當前結果不一致，直接重整結果與陳述，避免用舊列表渲染新引用
+        if (res.status === "ready" && !res.isStale && res.mathRevision !== currentMathResult?.computedAt) {
+          try {
+            await refresh({ force: true });
+          } catch {
+            // refresh 失敗時仍嘗試以現有狀態排程下一次輪詢
+          }
+          if (isPendingOrRefreshing(currentSynthesis)) {
+            pollIntervalMs = Math.min(15000, Math.round(pollIntervalMs * 1.5));
+            schedulePendingPoll();
+          } else {
+            pollIntervalMs = 2000;
+          }
+          return;
+        }
         applySynthesis(res, currentMathResult);
         if (isPendingOrRefreshing(res)) {
           pollIntervalMs = Math.min(15000, Math.round(pollIntervalMs * 1.5));

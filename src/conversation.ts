@@ -633,8 +633,11 @@ export class Conversation extends DurableObject<Env> {
     if (rawCache) {
       try {
         cached = JSON.parse(rawCache) as SensemakingSynthesis;
-        // 舊快取可能含小群畫像／張力：回傳前依目前分群移除（不重新生成）
-        if (cached && cached.status === "ready") cached = dropUnreportableGroups(cached, math.result);
+        if (cached && cached.status === "ready") {
+          // 舊快取可能含小群畫像／張力／Distinctive 主題／keyStance／逐格抑制之張力引用：
+          // 以當前隱私安全版結果深層再驗證（privacyVersion 用於未來版本追蹤，舊快取亦經此深層過濾）
+          cached = dropUnreportableGroups(cached, math.result);
+        }
       } catch {
         cached = null;
       }
@@ -1038,6 +1041,8 @@ export class Conversation extends DurableObject<Env> {
       this.setMeta("synthesis_failure", "");
       this.setMeta("synthesis_data", "");
       this.setMeta("synthesis_pending", "");
+      // 讓新修訂的快照可被重新送件（否則舊的 enqueued_revision 會使下一次 GET 直接以確定性摘要結案）
+      this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
     }
     return { ok: true, settings: next };
   }
