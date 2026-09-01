@@ -45,7 +45,11 @@ export function el(tag, attrs = {}, children = []) {
     else if (key === "class") node.className = value;
     else node.setAttribute(key, value);
   }
-  for (const child of children) node.append(child);
+  // 略過 null / undefined / false：選填欄位以條件式傳入時不得渲染成字面 "null"
+  for (const child of children) {
+    if (child === null || child === undefined || child === false) continue;
+    node.append(child);
+  }
   return node;
 }
 

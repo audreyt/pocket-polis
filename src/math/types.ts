@@ -36,7 +36,10 @@ export interface GroupResult {
   size: number;
   center: [number, number];
   representative: RepresentativeStatement[];
-  /** 該群在各陳述上的投票統計（納入分群之參與者） */
+  /**
+   * 該群在各陳述上的投票統計（納入分群之參與者）。
+   * 僅在 size >= MIN_GROUP_STATS_SIZE 時出現在公開 /results（見 pipeline.redactSmallGroupStats）。
+   */
   statementStats?: StatementStat[];
 }
 

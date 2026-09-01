@@ -113,6 +113,26 @@ export function computeMath(input: PipelineInput): PipelineOutput {
   };
 }
 
+/**
+ * 公開每群逐陳述票數的最小群體人數（k-匿名下限）。
+ * k-means 可能產出 1～2 人的群；其 agree/disagree/pass 逐陳述統計等同於揭露個人投票，
+ * 即使關閉開放資料匯出也會外洩。低於此人數的群，statementStats 不進公開 /results、
+ * 不進 AI 提示的群體對比、也不得作為張力證據。
+ */
+export const MIN_GROUP_STATS_SIZE = 3;
+
+/** 公開版 MathResult：移除小於 MIN_GROUP_STATS_SIZE 之群體的逐陳述統計。DO 內部綜整仍用完整版。 */
+export function redactSmallGroupStats(result: MathResult): MathResult {
+  return {
+    ...result,
+    groups: result.groups.map((g) => {
+      if (g.size >= MIN_GROUP_STATS_SIZE) return g;
+      const { statementStats: _omit, ...rest } = g;
+      return rest;
+    }),
+  };
+}
+
 function tallyStatements(votes: VoteRow[], statementIds: number[]): StatementStat[] {
   const stats = new Map<number, StatementStat>(
     statementIds.map((sid) => [sid, { sid, agrees: 0, disagrees: 0, passes: 0, seen: 0 }]),

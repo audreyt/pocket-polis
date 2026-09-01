@@ -1,4 +1,5 @@
 import type { MathResult, StatementStat } from "./math/types";
+import { MIN_GROUP_STATS_SIZE } from "./math/pipeline";
 import {
   CATEGORIZE_BATCH_SIZE,
   CATEGORIZE_BATCH_PROMPT_MAX_BYTES,
@@ -185,14 +186,16 @@ export function computeEvidenceBuckets(
     mathResult.statementStats.map((s) => [s.sid, s]),
   );
 
+  // 低於 MIN_GROUP_STATS_SIZE 的群一律視為無逐陳述統計：不進提示、不當張力證據（seen 視為 0）
   const groupStatsMap = new Map<number, Map<number, StatementStat>>();
   for (const g of mathResult.groups) {
-    if (g.statementStats) {
+    if (g.statementStats && g.size >= MIN_GROUP_STATS_SIZE) {
       groupStatsMap.set(g.id, new Map(g.statementStats.map((s) => [s.sid, s])));
     } else {
       groupStatsMap.set(g.id, new Map());
     }
   }
+  const hasGroupStats = (gid: number) => (groupStatsMap.get(gid)?.size ?? 0) > 0;
 
   // 1. 嚴格跨群共識候選集：
   // 交集數學管線檢定通過之 consensus 方向與每群平滑偽機率 (succ + 1) / (seen + 2) >= 0.60。
@@ -206,6 +209,7 @@ export function computeEvidenceBuckets(
     for (const c of mathResult.consensus.agree) {
       let allGroupsGte60 = true;
       for (const g of mathResult.groups) {
+        if (!hasGroupStats(g.id)) continue; // 小群無公開統計，僅由數學管線 consensus 檢定把關
         const gs = groupStatsMap.get(g.id)?.get(c.sid);
         const agrees = gs ? gs.agrees : 0;
         const seen = gs ? gs.seen : 0;
@@ -225,6 +229,7 @@ export function computeEvidenceBuckets(
     for (const c of mathResult.consensus.disagree) {
       let allGroupsGte60 = true;
       for (const g of mathResult.groups) {
+        if (!hasGroupStats(g.id)) continue;
         const gs = groupStatsMap.get(g.id)?.get(c.sid);
         const disagrees = gs ? gs.disagrees : 0;
         const seen = gs ? gs.seen : 0;

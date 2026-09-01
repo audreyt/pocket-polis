@@ -1,7 +1,24 @@
 #!/usr/bin/env node
+// 部署前確保該環境的 Queue 存在。每個 Wrangler 環境使用各自的 Queue 名稱：
+// 一個 Queue 只能有一個作用中的 Worker consumer，若預設環境與 production 共用同一 Queue，
+// 後部署者會搶走 consumer binding，訊息就會跑到另一個環境（不同的 Durable Object namespace）。
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
-const queueName = process.argv[2] || "pocket-polis-sensemaking";
+export function resolveQueueName(env, configText = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8")) {
+  const stripped = configText
+    .split("\n")
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join("\n");
+  const config = JSON.parse(stripped);
+  const scope = env ? config.env?.[env] : config;
+  const name = scope?.queues?.consumers?.[0]?.queue;
+  if (typeof name !== "string" || !name) {
+    throw new Error(`No queue consumer configured for environment "${env || "(default)"}" in wrangler.jsonc`);
+  }
+  return name;
+}
 
 function runWrangler(args) {
   const result = spawnSync("npx", ["wrangler", ...args], {
@@ -15,34 +32,32 @@ function runWrangler(args) {
   };
 }
 
-// 1. Check if queue already exists
-const info1 = runWrangler(["queues", "info", queueName]);
-if (info1.status === 0) {
-  process.exit(0);
-}
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  const envName = process.argv[2] || "";
+  const queueName = resolveQueueName(envName);
+  // 1. Check if queue already exists
+  const info1 = runWrangler(["queues", "info", queueName]);
+  if (info1.status === 0) {
+    process.exit(0);
+  }
 
-// 2. If info failed (nonzero exit), attempt to create the queue
-const create = runWrangler(["queues", "create", queueName]);
-if (create.status === 0) {
-  process.exit(0);
-}
+  // 2. If info failed (nonzero exit), attempt to create the queue
+  const create = runWrangler(["queues", "create", queueName]);
+  if (create.status === 0) {
+    process.exit(0);
+  }
 
-// 3. If create failed (e.g. concurrent creation race), check info once more
-const info2 = runWrangler(["queues", "info", queueName]);
-if (info2.status === 0) {
-  process.exit(0);
-}
+  // 3. If create failed (e.g. concurrent creation race), check info once more
+  const info2 = runWrangler(["queues", "info", queueName]);
+  if (info2.status === 0) {
+    process.exit(0);
+  }
 
-// 4. Fail closed: emit captured errors and exit with code 1
-console.error(`Failed to ensure queue "${queueName}":`);
-if (info1.stderr || info1.stdout) {
-  console.error(`[info 1]:\n${info1.stderr || info1.stdout}`.trim());
+  // 4. Fail closed: emit captured errors and exit with code 1
+  console.error(`Failed to ensure queue "${queueName}":`);
+  for (const [label, r] of [["info 1", info1], ["create", create], ["info 2", info2]]) {
+    if (r.stderr || r.stdout) console.error(`[${label}]:\n${r.stderr || r.stdout}`.trim());
+  }
+  process.exit(1);
 }
-if (create.stderr || create.stdout) {
-  console.error(`[create]:\n${create.stderr || create.stdout}`.trim());
-}
-if (info2.stderr || info2.stdout) {
-  console.error(`[info 2]:\n${info2.stderr || info2.stdout}`.trim());
-}
-
-process.exit(1);

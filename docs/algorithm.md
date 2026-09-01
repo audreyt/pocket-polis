@@ -73,6 +73,7 @@
 3. **群體感知證據池（Evidence Buckets）**：
    - **共識候選集**：交集數學管線方向與 Jigsaw `SummaryStats.minCommonGroundProb = 0.60` 規範（每群偽機率 $(succ+1)/(seen+2) \ge 0.60$；零觀測值為 0.5 自動 fail closed）。送入 Prompt 前依跨群 min-p 排序，上限 24 筆。
    - **分歧張力集**：納入各群代表性陳述與跨群同意率極差 $\ge 35\%$ 之陳述；依跨群同意率極大差距排序，代表性/SID tie-break，上限 24 筆。
+   - **小群 k-匿名**：人數低於 `MIN_GROUP_STATS_SIZE = 3` 的群體（k-means 可能產出 1～2 人群）不提供逐陳述票數：公開 `/results` 以 `redactSmallGroupStats` 移除其 `statementStats`；證據池、Prompt 群體對比與張力驗證一律視其 `seen = 0`，避免即使關閉開放資料仍能從群體統計反推個人投票。
 4. **嚴格引用審議綜整（Cited Synthesis）**：
    - `max_tokens: 4096`，system+user ≤ 48,000 UTF-8 bytes。
    - `overview`：引用必須屬於最終 Prompt 中實際展示的證據聯集（若引用缺失或無效，則中立化為確定性結構句並給予空引用，不保留模型文本）；參與者與投票脈絡採確定性字串。
@@ -84,7 +85,7 @@
 ### 2. Pocket Polis 免費額度與架構特色
 
 - **神經元硬契約（不是平均值）**：`@cf/google/gemma-4-26b-a4b-it` 官方費率 `輸入上限 token × 9091 / 1e6 + max_tokens × 27273 / 1e6`。輸入上限 = `utf8_bytes(system)+utf8_bytes(user)+256`，不是字元數，也不是精確 token。每次 `ai.run` 前同時做本地 `tryReserve` 與部署級 UTC 日協調器原子預留；本應用日上限 **9,000**（低於每日 10,000 免費額 1,000）。同一 Cloudflare 帳號的其他 Worker 不在此協調器內。對話 DO 在第一次模型呼叫前寫入滾動 24h AI 聲明，Queue 重試不能雙花。最終綜整額度先在本地扣留，實際呼叫前仍向協調器預留。
-- **Queue ≠ 神經元節省**：Cloudflare Queues（`pocket-polis-sensemaking`，`max_batch_size: 1`, `max_retries: 1`）只做耐久與延遲隔離。一則 <64KB 訊息最多 **4 次 Queue 操作**（1 寫 + 2 讀 + 1 刪）。成功路徑 3 次。與神經元分屬不同免費額度。
+- **Queue ≠ 神經元節省**：Cloudflare Queues（預設環境 `pocket-polis-sensemaking`、production 環境 `pocket-polis-sensemaking-production`——每個環境各自一條，因為一條 Queue 只能有一個作用中的 consumer；`max_batch_size: 1`, `max_retries: 1`）只做耐久與延遲隔離。一則 <64KB 訊息最多 **4 次 Queue 操作**（1 寫 + 2 讀 + 1 刪）。成功路徑 3 次。與神經元分屬不同免費額度。
 - **24 小時新鮮度週期**：成功生成後，同 revision 之 ready 快取永久有效（`isStale: false`）；資料變更產生新 revision 時，未滿 24 小時先回傳舊快取並標記 `isStale: true`；滿 24 小時後方允許背景刷新（`refreshPending: true`）並排程重新生成。確定性 fallback 亦持久化為當前 revision 之 `status: "ready"`（`generationMode: "deterministic"`），同 revision 永久有效不重複 enqueue；僅在資料產生新 revision 且超過滾動 24 小時 AI 嘗試窗口後方可再次嘗試 AI 生成。
 - **邊緣快取白名單**：透過 Workers Cache API 提供 3s–300s TTL 之邊緣快取，採用嚴格公開白名單（`/`, `/en`, `/guide`, `/en/guide`, `/c/:id`, `/r/:id`, `/api/health`, `/api/conversations/:id` 及 public statements/anonymous results/synthesis），正則化移除所有查詢字串，排除個人化（`?pid=`）、授權標頭、管理端，並支援 `Cache-Control: no-cache` 強制重新整理直通 DO。
 - **零付費依賴**：完全運行在 Cloudflare 免費額度內（10,000 神經元/日、10,000 佇列操作/日）。
