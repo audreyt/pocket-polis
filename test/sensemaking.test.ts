@@ -824,6 +824,63 @@ describe("generateSensemaking 多階段生成與嚴格引用驗證", () => {
     expect(p0.summary).toContain("位參與者呈現此群體的代表性投票特徵");
     expect(p0.title).not.toContain("模型生造標題");
   });
+  it("Gemma 回傳標題／數字／裸陣列／snake_case 時仍正確歸類，不整批落入 other", async () => {
+    const { mathResult } = createMockMathResult();
+    const statements = [
+      { sid: 1, text: "Fund large-scale procurement via a special budget." },
+      { sid: 2, text: "Prioritize domestically built weapons." },
+      { sid: 3, text: "The legislature needs real oversight of classified budgets." },
+    ];
+
+    const aiRun = vi.fn();
+    aiRun.mockResolvedValueOnce({
+      response: JSON.stringify({
+        topics: [
+          { id: "t1", title: "Fiscal Strategy", description: "How to fund defense spending" },
+          { id: "t2", title: "Procurement Mix", description: "Import versus domestic industry" },
+          { id: "t3", title: "Legislative Oversight", description: "Transparency and audit" },
+        ],
+      }),
+    });
+    // 模擬 EN Gemma 常見走樣：前言 + 裸陣列、標題當 id、數字 id、snake_case、字串 sid
+    aiRun.mockResolvedValueOnce({
+      response:
+        "Here are the assignments:\n" +
+        JSON.stringify([
+          { statement_id: "1", primary_topic_id: "Fiscal Strategy", secondary_topic_id: null },
+          { sid: 2, primaryTopicId: 2 },
+          { statementId: 3, topicId: "T3" },
+        ]),
+    });
+    aiRun.mockResolvedValueOnce({
+      response: JSON.stringify({
+        overview: { summary: "Sum", citedStatementIds: [1] },
+        commonGround: { keyPoints: [] },
+        groupPortraits: [],
+        tensions: [],
+      }),
+    });
+
+    const mockAi = { run: aiRun } as unknown as Ai;
+    const res = (await generateSensemaking({
+      ai: mockAi,
+      lang: "en",
+      title: "Defense budget",
+      description: "Simulated referendum",
+      mathResult,
+      statements,
+      mathRevision: 1,
+      now: 1000,
+    })) as SensemakingResponse;
+
+    expect(res.status).toBe("ready");
+    if (res.status !== "ready") return;
+    expect(res.themes.find((t) => t.id === "other")).toBeUndefined();
+    expect(res.themes.find((t) => t.id === "t1")?.primaryStatementIds).toEqual([1]);
+    expect(res.themes.find((t) => t.id === "t2")?.primaryStatementIds).toEqual([2]);
+    expect(res.themes.find((t) => t.id === "t3")?.primaryStatementIds).toEqual([3]);
+  });
+
   it("AI 呼叫拋出異常時回傳 unavailable，不造成 Worker 崩潰", async () => {
     const { mathResult } = createMockMathResult();
     const aiRun = vi.fn().mockRejectedValue(new Error("Cloudflare AI Gateway 429 Rate Limit"));

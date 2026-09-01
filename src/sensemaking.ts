@@ -528,6 +528,66 @@ async function categorizeStatements(
   // Filter themes by union / nonempty
   return [...themeMap.values()].filter((th) => th.statementIds.length > 0);
 }
+
+function coerceSid(rec: Record<string, unknown>): number {
+  for (const key of ["sid", "statementId", "statement_id", "id"]) {
+    const c = rec[key];
+    if (typeof c === "number" && Number.isFinite(c)) return c;
+    if (typeof c === "string") {
+      const n = parseInt(c.trim(), 10);
+      if (!Number.isNaN(n)) return n;
+    }
+  }
+  return NaN;
+}
+
+function firstPresent(rec: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (key in rec && rec[key] != null && rec[key] !== "") return rec[key];
+  }
+  return "";
+}
+
+/** 將模型回傳的主題參照（id、數字、標題、t1: Title）對到規範 topic id。 */
+function matchTopicRef(raw: unknown, topics: SensemakingTopic[]): string | null {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    const asT = `t${raw}`;
+    const byNum = topics.find((t) => t.id === asT || t.id === String(raw));
+    return byNum ? byNum.id : null;
+  }
+  if (typeof raw !== "string") return null;
+  const clean = sanitizeText(raw, 80);
+  if (!clean) return null;
+  const lower = clean.toLowerCase();
+  const byId = topics.find((t) => t.id.toLowerCase() === lower);
+  if (byId) return byId.id;
+  const byTitle = topics.find((t) => t.title.toLowerCase() === lower);
+  if (byTitle) return byTitle.id;
+  const prefix = lower.match(/^(t\d+)\b/);
+  if (prefix) {
+    const hit = topics.find((t) => t.id.toLowerCase() === prefix[1]);
+    if (hit) return hit.id;
+  }
+  if (/^\d+$/.test(clean)) {
+    const asT = `t${clean}`;
+    const hit = topics.find((t) => t.id.toLowerCase() === asT.toLowerCase());
+    if (hit) return hit.id;
+  }
+  return null;
+}
+
+function extractAssignmentsArray(parsed: unknown): unknown[] | null {
+  if (Array.isArray(parsed)) return parsed;
+  if (typeof parsed === "object" && parsed !== null) {
+    const rec = parsed as Record<string, unknown>;
+    for (const key of ["assignments", "classifications", "data", "results"]) {
+      if (Array.isArray(rec[key])) return rec[key] as unknown[];
+    }
+  }
+  return null;
+}
+
 async function runCategorizeBatch(
   ai: Ai,
   lang: "zh" | "en",
@@ -536,7 +596,6 @@ async function runCategorizeBatch(
 ): Promise<Map<number, { primary: string; secondary: string | null }>> {
   const result = new Map<number, { primary: string; secondary: string | null }>();
   const validBatchSids = new Set(batch.map((s) => s.sid));
-  const topicIdSet = new Set(topics.map((t) => t.id));
   const topicsSummary = topics.map((t) => `${t.id}: ${t.title} (${t.description})`).join("\n");
   const statementsList = batch.map((s) => `[#${s.sid}] ${sanitizeUntrusted(s.text)}`).join("\n");
 
@@ -561,28 +620,34 @@ ${statementsList}`;
 
   try {
     const raw = await runAiModel(ai, systemPrompt, userPrompt, 4096);
-    const parsed = parseJsonSafe<{ assignments?: unknown }>(raw);
-    if (parsed && Array.isArray(parsed.assignments)) {
-      for (const item of parsed.assignments) {
+    const parsed = parseJsonSafe<unknown>(raw);
+    const assignments = extractAssignmentsArray(parsed);
+    if (assignments) {
+      for (const item of assignments) {
         if (typeof item === "object" && item !== null && !Array.isArray(item)) {
           const rec = item as Record<string, unknown>;
-          const rawSid = typeof rec.sid === "number" ? rec.sid : typeof rec.statementId === "number" ? rec.statementId : typeof rec.id === "number" ? rec.id : typeof rec.sid === "string" ? parseInt(rec.sid, 10) : NaN;
-          if (!isNaN(rawSid) && validBatchSids.has(rawSid)) {
-            const rawPrim = typeof rec.primaryTopicId === "string" ? rec.primaryTopicId : typeof rec.topicId === "string" ? rec.topicId : typeof rec.primary === "string" ? rec.primary : typeof rec.topic === "string" ? rec.topic : "";
-            const primClean = sanitizeText(rawPrim, 16);
-            // 支援大小寫不敏感匹配 (t1 vs T1)
-            const matchedPrim = [...topicIdSet].find((t) => t.toLowerCase() === primClean.toLowerCase());
+          const rawSid = coerceSid(rec);
+          if (!Number.isNaN(rawSid) && validBatchSids.has(rawSid)) {
+            const rawPrim = firstPresent(rec, [
+              "primaryTopicId",
+              "primary_topic_id",
+              "topicId",
+              "topic_id",
+              "primary",
+              "topic",
+            ]);
+            const matchedPrim = matchTopicRef(rawPrim, topics);
             if (matchedPrim) {
-              let sec: string | null = null;
-              const rawSec = typeof rec.secondaryTopicId === "string" ? rec.secondaryTopicId : typeof rec.secondary === "string" ? rec.secondary : "";
-              const secClean = sanitizeText(rawSec, 16);
-              const matchedSec = [...topicIdSet].find((t) => t.toLowerCase() === secClean.toLowerCase() && t !== matchedPrim);
-              if (matchedSec) {
-                sec = matchedSec;
-              }
+              const rawSec = firstPresent(rec, [
+                "secondaryTopicId",
+                "secondary_topic_id",
+                "secondary",
+                "secondaryId",
+              ]);
+              const matchedSec = matchTopicRef(rawSec, topics);
               result.set(rawSid, {
                 primary: matchedPrim,
-                secondary: sec,
+                secondary: matchedSec && matchedSec !== matchedPrim ? matchedSec : null,
               });
             }
           }
@@ -1157,20 +1222,28 @@ function parseJsonSafe<T>(text: string): T | null {
     clean = clean.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   }
   clean = clean.trim();
-  try {
-    return JSON.parse(clean) as T;
-  } catch {
-    const firstBrace = clean.indexOf("{");
-    const lastBrace = clean.lastIndexOf("}");
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      try {
-        return JSON.parse(clean.slice(firstBrace, lastBrace + 1)) as T;
-      } catch {
-        return null;
-      }
+  const tryParse = (slice: string): T | null => {
+    try {
+      return JSON.parse(slice) as T;
+    } catch {
+      return null;
     }
-    return null;
+  };
+  const direct = tryParse(clean);
+  if (direct !== null) return direct;
+  const firstBrace = clean.indexOf("{");
+  const lastBrace = clean.lastIndexOf("}");
+  const firstBracket = clean.indexOf("[");
+  const lastBracket = clean.lastIndexOf("]");
+  if (firstBrace >= 0 && (firstBracket < 0 || firstBrace <= firstBracket)) {
+    const obj = firstBrace < lastBrace ? tryParse(clean.slice(firstBrace, lastBrace + 1)) : null;
+    if (obj !== null) return obj;
   }
+  if (firstBracket >= 0 && lastBracket > firstBracket) {
+    const arr = tryParse(clean.slice(firstBracket, lastBracket + 1));
+    if (arr !== null) return arr;
+  }
+  return null;
 }
 
 export function sanitizeText(input: unknown, maxLen = 1000): string {

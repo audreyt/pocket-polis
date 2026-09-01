@@ -1,8 +1,8 @@
 # Code of Conduct 行為準則
 
-Pocket Polis（口袋審議）的目標是讓任何社群都能安全地看見彼此的意見分布與共識。這份準則涵蓋兩個範圍：**公用示範站**（polis.mashbean.net）的使用規範，以及本開源專案的協作規範。
+Pocket Polis（口袋審議）的目標是讓任何社群都能安全地看見彼此的意見分布與共識。這份準則涵蓋兩個範圍：**公用示範站**（polis.tw）的使用規範，以及本開源專案的協作規範。
 
-Pocket Polis exists so that any community can safely see its own opinion landscape and common ground. This document covers two scopes: the **public demo site** (polis.mashbean.net) and collaboration on this open-source project.
+Pocket Polis exists so that any community can safely see its own opinion landscape and common ground. This document covers two scopes: the **public demo site** (polis.tw) and collaboration on this open-source project.
 
 ## 示範站使用規範 · Demo site rules
 
