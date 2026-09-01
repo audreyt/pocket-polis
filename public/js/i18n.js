@@ -7,6 +7,7 @@ const STRINGS = {
   "app.loading": ["載入中⋯", "Loading…"],
   "app.sourceLink": ["原始碼", "Source"],
   "app.badUrl": ["網址不正確。", "This link is not valid."],
+  "nav.zhName": ["口袋審議", ""],
 
   // 參與頁
   "p.title": ["參與討論", "Join the conversation"],
@@ -185,6 +186,8 @@ export function applyI18n(root = document) {
   for (const el of root.querySelectorAll("[data-i18n-placeholder]")) {
     el.setAttribute("placeholder", t(el.dataset.i18nPlaceholder));
   }
+  const home = document.getElementById("home-link");
+  if (home) home.href = lang === "en" ? "/en" : "/";
 }
 
 /** 在指定節點掛上「中文｜EN」切換 */

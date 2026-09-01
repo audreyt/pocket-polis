@@ -107,9 +107,11 @@ describe("雙語頁面", () => {
     expect(read("public/guide-en.html")).toContain('href="/guide"');
   });
 
-  it("應用頁掛上 i18n", () => {
+  it("應用頁掛上 i18n 與回官網的品牌導覽", () => {
     for (const page of ["participate", "report", "admin"]) {
-      expect(read(`public/${page}.html`)).toContain("data-i18n");
+      const html = read(`public/${page}.html`);
+      expect(html).toContain("data-i18n");
+      expect(html).toContain('id="home-link"');
     }
     expect(read("public/js/i18n.js")).toContain("STRINGS");
   });

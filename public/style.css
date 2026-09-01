@@ -196,6 +196,25 @@ li {
   padding-top: 1.2rem;
 }
 
+.site-nav.compact {
+  padding: 1rem 0 0.85rem;
+  margin-bottom: 1.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.site-nav.compact .wordmark {
+  font-size: 0.95rem;
+}
+
+.site-nav.compact .wordmark img {
+  width: 26px;
+  height: 26px;
+}
+
+.site-nav.compact .lang-switch {
+  margin-left: auto;
+}
+
 /* ---- Hero ---- */
 
 .eyebrow {
