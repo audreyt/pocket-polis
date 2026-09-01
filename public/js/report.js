@@ -360,17 +360,26 @@ async function loadStatementTexts() {
   statementIndex = new Map(data.statements.map((s) => [s.sid, s]));
 }
 
-async function refresh() {
-  const info = await api(`/api/conversations/${convId}`);
-  document.getElementById("conv-title").textContent = info.title;
-  document.getElementById("conv-description").textContent = info.description;
-  document.title = `${info.title} · ${t("r.title")} — Pocket Polis`;
-  document.getElementById("participate-link").href = `/c/${convId}`;
+let infoLoaded = false;
 
-  await loadStatementTexts();
+async function refresh() {
+  // 標題與說明只抓一次；之後每輪刷新只打 /results 一個請求
+  if (!infoLoaded) {
+    const info = await api(`/api/conversations/${convId}`);
+    document.getElementById("conv-title").textContent = info.title;
+    document.getElementById("conv-description").textContent = info.description;
+    document.title = `${info.title} · ${t("r.title")} — Pocket Polis`;
+    document.getElementById("participate-link").href = `/c/${convId}`;
+    infoLoaded = true;
+  }
+
   const pid = pidForReadOnly();
   const query = pid ? `?pid=${pid}` : "";
   const { result, you } = await api(`/api/conversations/${convId}/results${query}`);
+  // 意見文字：只有出現快取裡沒有的新意見時才重抓
+  if (result.statementStats.some((s) => !statementIndex.has(s.sid))) {
+    await loadStatementTexts();
+  }
   renderStats(result);
   renderMap(result, you);
   renderConsensus(result);
@@ -389,7 +398,13 @@ document.getElementById("refresh").addEventListener("click", () => refresh().cat
   if (!convId) return fail(t("app.badUrl"));
   try {
     await refresh();
-    setInterval(() => refresh().catch(() => {}), 30000);
+    // 分頁在背景時暫停自動刷新（回到前景立即補一次），省請求
+    setInterval(() => {
+      if (!document.hidden) refresh().catch(() => {});
+    }, 30000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refresh().catch(() => {});
+    });
   } catch (error) {
     fail(error.message);
   }

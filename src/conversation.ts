@@ -34,10 +34,25 @@ export interface StatementView {
   createdAt: number;
 }
 
+export interface NextStatement {
+  statement: { sid: number; text: string } | null;
+  progress: { voted: number; total: number };
+}
+
 const MAX_STATEMENTS = 800;
 const MAX_STATEMENT_LENGTH = 280;
-// 投票或陳述有變動時，最快每 2 秒重算一次數學結果；其餘時間先回快取
-const MATH_MIN_INTERVAL_MS = 2000;
+
+// ---- 免費額度友善的節流參數 ----
+// （Cloudflare 免費方案：每天 10 萬請求、SQLite 讀 500 萬列／寫 10 萬列。
+//   投票表的統計一律走 statements 上的反正規化計數欄，不掃 votes 表。）
+// 數學重算的最小間隔：隨票數放大（1 萬票 → 12 秒），上限 15 秒
+const mathMinIntervalMs = (nVotes: number) => Math.min(15000, Math.max(2000, 2000 + nVotes));
+// 快取超過這個年紀就做一次便宜的新鮮度探測（比對計數欄總和）
+const MATH_PROBE_AGE_MS = 30000;
+// revision 至多每 5 秒落盤一次（DO 存活期間靠記憶體 dirty 旗標）
+const REVISION_PERSIST_INTERVAL_MS = 5000;
+// 參與者 last_seen 至多每 5 分鐘寫一次
+const PARTICIPANT_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
 const CREATE_PER_HOUR = 10;
 const CREATE_PER_DAY = 50;
@@ -50,6 +65,11 @@ interface MathCache {
 
 export class Conversation extends DurableObject<Env> {
   private migrated = false;
+  /** DO 存活期間的髒旗標（有投票/審核變動、尚未重算） */
+  private dirty = false;
+  private lastRevisionPersistAt = 0;
+  /** pid → 上次 touch 時間（省去重複的 participants 讀寫） */
+  private touchCache = new Map<string, number>();
 
   private sql() {
     this.migrate();
@@ -97,11 +117,28 @@ export class Conversation extends DurableObject<Env> {
         `CREATE INDEX idx_statements_status ON statements(status)`,
         `CREATE TABLE creation_log (ts INTEGER NOT NULL)`,
       ],
+      // v2：statements 反正規化計數欄 + participantCount 計數器（省 rows read）
+      [
+        `ALTER TABLE statements ADD COLUMN agrees INTEGER NOT NULL DEFAULT 0`,
+        `ALTER TABLE statements ADD COLUMN disagrees INTEGER NOT NULL DEFAULT 0`,
+        `ALTER TABLE statements ADD COLUMN passes INTEGER NOT NULL DEFAULT 0`,
+        `UPDATE statements SET
+           agrees = (SELECT COUNT(*) FROM votes v WHERE v.sid = statements.sid AND v.value = 1),
+           disagrees = (SELECT COUNT(*) FROM votes v WHERE v.sid = statements.sid AND v.value = -1),
+           passes = (SELECT COUNT(*) FROM votes v WHERE v.sid = statements.sid AND v.value = 0)`,
+        // SELECT 後帶 WHERE 是 SQLite 對 INSERT…SELECT…ON CONFLICT 的解析要求
+        `INSERT INTO meta (key, value)
+           SELECT 'participantCount', CAST(COUNT(*) AS TEXT) FROM participants WHERE 1
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      ],
     ];
     for (let v = 1; v <= migrations.length; v++) {
       if (applied.has(v)) continue;
-      for (const stmt of migrations[v - 1]!) sql.exec(stmt);
-      sql.exec(`INSERT INTO _sql_schema_migrations (version, applied_at) VALUES (?, ?)`, v, Date.now());
+      // 整個版本包成一筆交易：任何一句失敗就整包回滾，不會留下半套 schema
+      this.ctx.storage.transactionSync(() => {
+        for (const stmt of migrations[v - 1]!) sql.exec(stmt);
+        sql.exec(`INSERT INTO _sql_schema_migrations (version, applied_at) VALUES (?, ?)`, v, Date.now());
+      });
     }
     this.migrated = true;
   }
@@ -126,13 +163,17 @@ export class Conversation extends DurableObject<Env> {
     return raw ? (JSON.parse(raw) as ConversationSettings) : null;
   }
 
-  private bumpRevision(): void {
-    const rev = Number(this.getMeta("revision") ?? "0") + 1;
-    this.setMeta("revision", String(rev));
-  }
-
   private revision(): number {
     return Number(this.getMeta("revision") ?? "0");
+  }
+
+  /** 記憶體 dirty 旗標 + 節流的 revision 落盤（DO 重啟後靠它補救） */
+  private markDirty(now: number): void {
+    this.dirty = true;
+    if (now - this.lastRevisionPersistAt > REVISION_PERSIST_INTERVAL_MS) {
+      this.setMeta("revision", String(this.revision() + 1));
+      this.lastRevisionPersistAt = now;
+    }
   }
 
   // ---- lifecycle ----
@@ -150,6 +191,7 @@ export class Conversation extends DurableObject<Env> {
     this.setMeta("adminTokenHash", adminTokenHash);
     this.setMeta("createdAt", String(now));
     this.setMeta("revision", "0");
+    this.setMeta("participantCount", "0");
     for (const text of seedStatements) {
       const trimmed = text.trim().slice(0, MAX_STATEMENT_LENGTH);
       if (!trimmed) continue;
@@ -159,7 +201,7 @@ export class Conversation extends DurableObject<Env> {
         now,
       );
     }
-    this.bumpRevision();
+    this.markDirty(now);
     return { ok: true };
   }
 
@@ -171,7 +213,12 @@ export class Conversation extends DurableObject<Env> {
     const id = this.getMeta("id");
     const settings = this.settings();
     if (!id || !settings) return null;
-    const one = (q: string) => Number(this.sql().exec(q).one().n);
+    const counts = this.sql()
+      .exec(
+        `SELECT COUNT(*) AS n, COALESCE(SUM(agrees + disagrees + passes), 0) AS v
+         FROM statements WHERE status = 'approved'`,
+      )
+      .one();
     return {
       id,
       title: settings.title,
@@ -181,22 +228,20 @@ export class Conversation extends DurableObject<Env> {
       autoApprove: settings.autoApprove,
       openData: settings.openData,
       counts: {
-        statements: one(`SELECT COUNT(*) AS n FROM statements WHERE status = 'approved'`),
-        participants: one(`SELECT COUNT(*) AS n FROM participants`),
-        votes: one(
-          `SELECT COUNT(*) AS n FROM votes v JOIN statements s ON s.sid = v.sid WHERE s.status = 'approved'`,
-        ),
+        statements: Number(counts.n),
+        participants: Number(this.getMeta("participantCount") ?? "0"),
+        votes: Number(counts.v),
       },
       createdAt: Number(this.getMeta("createdAt") ?? "0"),
     };
   }
 
   private touchParticipant(pid: string, now: number): void {
-    const existing = this.sql().exec(`SELECT pid FROM participants WHERE pid = ?`, pid).toArray();
-    if (existing.length > 0) {
-      this.sql().exec(`UPDATE participants SET last_seen = ? WHERE pid = ?`, now, pid);
-    } else {
-      const seq = Number(this.sql().exec(`SELECT COUNT(*) AS n FROM participants`).one().n) + 1;
+    const cached = this.touchCache.get(pid);
+    if (cached !== undefined && now - cached < PARTICIPANT_TOUCH_INTERVAL_MS) return;
+    const rows = this.sql().exec(`SELECT last_seen FROM participants WHERE pid = ?`, pid).toArray();
+    if (rows.length === 0) {
+      const seq = Number(this.getMeta("participantCount") ?? "0") + 1;
       this.sql().exec(
         `INSERT INTO participants (pid, seq, created_at, last_seen) VALUES (?, ?, ?, ?)`,
         pid,
@@ -204,28 +249,34 @@ export class Conversation extends DurableObject<Env> {
         now,
         now,
       );
+      this.setMeta("participantCount", String(seq));
+    } else if (now - Number(rows[0]!.last_seen) > PARTICIPANT_TOUCH_INTERVAL_MS) {
+      this.sql().exec(`UPDATE participants SET last_seen = ? WHERE pid = ?`, now, pid);
     }
+    this.touchCache.set(pid, now);
   }
 
   // ---- participation ----
 
-  async nextStatement(
-    pid: string,
-    now: number,
-  ): Promise<{ statement: { sid: number; text: string } | null; progress: { voted: number; total: number } }> {
+  async nextStatement(pid: string, now: number): Promise<NextStatement> {
     this.touchParticipant(pid, now);
+    return this.pickNext(pid);
+  }
+
+  /** 抽下一句：只讀 statements（含反正規化票數）與該參與者自己的投票 */
+  private pickNext(pid: string): NextStatement {
     const rows = this.sql()
       .exec(
-        `SELECT s.sid, s.text, (SELECT COUNT(*) FROM votes v WHERE v.sid = s.sid) AS vc
-         FROM statements s
-         WHERE s.status = 'approved'
-           AND s.sid NOT IN (SELECT sid FROM votes WHERE pid = ?)`,
+        `SELECT sid, text, (agrees + disagrees + passes) AS vc
+         FROM statements
+         WHERE status = 'approved'
+           AND sid NOT IN (SELECT sid FROM votes WHERE pid = ?)`,
         pid,
       )
       .toArray();
     const progress = this.progress(pid);
     if (rows.length === 0) return { statement: null, progress };
-    // 票數較少的陳述優先被抽到（加速冷啟動的資料蒐集），加權隨機
+    // 票數較少的意見優先被抽到（加速冷啟動的資料蒐集），加權隨機
     const weights = rows.map((r) => 1 / (1 + Number(r.vc)));
     const total = weights.reduce((a, b) => a + b, 0);
     let t = Math.random() * total;
@@ -244,19 +295,16 @@ export class Conversation extends DurableObject<Env> {
   }
 
   private progress(pid: string): { voted: number; total: number } {
-    const voted = Number(
-      this.sql()
-        .exec(
-          `SELECT COUNT(*) AS n FROM votes v JOIN statements s ON s.sid = v.sid
-           WHERE v.pid = ? AND s.status = 'approved'`,
-          pid,
-        )
-        .one().n,
-    );
-    const total = Number(
-      this.sql().exec(`SELECT COUNT(*) AS n FROM statements WHERE status = 'approved'`).one().n,
-    );
-    return { voted, total };
+    const row = this.sql()
+      .exec(
+        `SELECT
+           (SELECT COUNT(*) FROM votes v JOIN statements s ON s.sid = v.sid
+             WHERE v.pid = ? AND s.status = 'approved') AS voted,
+           (SELECT COUNT(*) FROM statements WHERE status = 'approved') AS total`,
+        pid,
+      )
+      .one();
+    return { voted: Number(row.voted), total: Number(row.total) };
   }
 
   async castVote(
@@ -264,28 +312,50 @@ export class Conversation extends DurableObject<Env> {
     sid: number,
     value: VoteValue,
     now: number,
-  ): Promise<{ ok: true; progress: { voted: number; total: number } } | { ok: false; error: string }> {
+  ): Promise<
+    | { ok: true; progress: { voted: number; total: number }; next: NextStatement["statement"] }
+    | { ok: false; error: string }
+  > {
     const settings = this.settings();
     if (!settings) return { ok: false, error: "not found" };
     if (settings.status !== "open") return { ok: false, error: "conversation closed" };
-    const stmt = this.sql()
-      .exec(`SELECT status FROM statements WHERE sid = ?`, sid)
-      .toArray();
+    const stmt = this.sql().exec(`SELECT status FROM statements WHERE sid = ?`, sid).toArray();
     if (stmt.length === 0 || stmt[0]!.status !== "approved") {
       return { ok: false, error: "statement not available" };
     }
     this.touchParticipant(pid, now);
-    this.sql().exec(
-      `INSERT INTO votes (pid, sid, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(pid, sid) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-      pid,
-      sid,
-      value,
-      now,
-      now,
-    );
-    this.bumpRevision();
-    return { ok: true, progress: this.progress(pid) };
+
+    const prevRows = this.sql().exec(`SELECT value FROM votes WHERE pid = ? AND sid = ?`, pid, sid).toArray();
+    const prev = prevRows.length > 0 ? (Number(prevRows[0]!.value) as VoteValue) : null;
+
+    if (prev !== value) {
+      this.sql().exec(
+        `INSERT INTO votes (pid, sid, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(pid, sid) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        pid,
+        sid,
+        value,
+        now,
+        now,
+      );
+      // 反正規化計數欄：新票 +1；改票則舊方向 -1、新方向 +1
+      const delta = { agrees: 0, disagrees: 0, passes: 0 };
+      const col = (v: VoteValue) => (v === 1 ? "agrees" : v === -1 ? "disagrees" : "passes");
+      delta[col(value)] += 1;
+      if (prev !== null) delta[col(prev)] -= 1;
+      this.sql().exec(
+        `UPDATE statements SET agrees = agrees + ?, disagrees = disagrees + ?, passes = passes + ? WHERE sid = ?`,
+        delta.agrees,
+        delta.disagrees,
+        delta.passes,
+        sid,
+      );
+      this.markDirty(now);
+    }
+
+    // 一併回傳下一句，參與流程從「抽題+投票」兩個請求減為一個
+    const next = this.pickNext(pid);
+    return { ok: true, progress: next.progress, next: next.statement };
   }
 
   async submitStatement(
@@ -311,9 +381,9 @@ export class Conversation extends DurableObject<Env> {
       trimmed,
       pid,
       status,
-      now,
+    now,
     );
-    if (status === "approved") this.bumpRevision();
+    if (status === "approved") this.markDirty(now);
     return { ok: true, status };
   }
 
@@ -326,14 +396,28 @@ export class Conversation extends DurableObject<Env> {
     const id = this.getMeta("id");
     if (!id) return null;
     const cache = this.readMathCache();
-    const rev = this.revision();
     let fresh = cache;
-    if (!cache || cache.revision !== rev) {
+    let stale = !cache || this.dirty || cache.revision !== this.revision();
+
+    // DO 重啟後 dirty 旗標會歸零：老快取用計數欄總和做一次便宜的新鮮度探測
+    if (!stale && cache && now - cache.publicResult.computedAt > MATH_PROBE_AGE_MS) {
+      const liveVotes = Number(
+        this.sql()
+          .exec(
+            `SELECT COALESCE(SUM(agrees + disagrees + passes), 0) AS v FROM statements WHERE status = 'approved'`,
+          )
+          .one().v,
+      );
+      if (liveVotes !== cache.publicResult.nVotes) stale = true;
+    }
+
+    if (stale) {
       const lastAt = Number(this.getMeta("mathComputedAt") ?? "0");
-      if (cache && now - lastAt < MATH_MIN_INTERVAL_MS) {
+      const minInterval = mathMinIntervalMs(cache?.publicResult.nVotes ?? 0);
+      if (cache && now - lastAt < minInterval) {
         fresh = cache; // 剛算過：先回稍舊的結果，避免重算風暴
       } else {
-        fresh = this.recompute(id, rev, now);
+        fresh = this.recompute(id, now);
       }
     }
     return {
@@ -347,7 +431,7 @@ export class Conversation extends DurableObject<Env> {
     return raw ? (JSON.parse(raw) as MathCache) : null;
   }
 
-  private recompute(id: string, revision: number, now: number): MathCache {
+  private recompute(id: string, now: number): MathCache {
     const previousK = this.readMathCache()?.publicResult.k ?? null;
     const statementIds = this.sql()
       .exec(`SELECT sid FROM statements WHERE status = 'approved' ORDER BY sid`)
@@ -367,9 +451,10 @@ export class Conversation extends DurableObject<Env> {
       computedAt: now,
       previousK: previousK && previousK >= 2 ? previousK : null,
     });
-    const cache: MathCache = { revision, publicResult, pidPoints };
+    const cache: MathCache = { revision: this.revision(), publicResult, pidPoints };
     this.setMeta("mathCache", JSON.stringify(cache));
     this.setMeta("mathComputedAt", String(now));
+    this.dirty = false;
     return cache;
   }
 
@@ -386,17 +471,13 @@ export class Conversation extends DurableObject<Env> {
     return diff === 0;
   }
 
+  /** 只讀 statements（計數欄反正規化，不掃 votes） */
   private listStatements(includeAll: boolean): StatementView[] {
-    const where = includeAll ? "" : `WHERE s.status = 'approved'`;
+    const where = includeAll ? "" : `WHERE status = 'approved'`;
     return this.sql()
       .exec(
-        `SELECT s.sid, s.text, s.status, s.is_seed, s.created_at,
-                SUM(CASE WHEN v.value = 1 THEN 1 ELSE 0 END) AS agrees,
-                SUM(CASE WHEN v.value = -1 THEN 1 ELSE 0 END) AS disagrees,
-                SUM(CASE WHEN v.value = 0 THEN 1 ELSE 0 END) AS passes
-         FROM statements s LEFT JOIN votes v ON v.sid = s.sid
-         ${where}
-         GROUP BY s.sid ORDER BY s.sid`,
+        `SELECT sid, text, status, is_seed, created_at, agrees, disagrees, passes
+         FROM statements ${where} ORDER BY sid`,
       )
       .toArray()
       .map((r) => ({
@@ -404,14 +485,14 @@ export class Conversation extends DurableObject<Env> {
         text: String(r.text),
         status: String(r.status),
         isSeed: Number(r.is_seed) === 1,
-        agrees: Number(r.agrees ?? 0),
-        disagrees: Number(r.disagrees ?? 0),
-        passes: Number(r.passes ?? 0),
+        agrees: Number(r.agrees),
+        disagrees: Number(r.disagrees),
+        passes: Number(r.passes),
         createdAt: Number(r.created_at),
       }));
   }
 
-  /** 結果頁用：已核准陳述的文字（不含統計，統計在 math result 裡） */
+  /** 結果頁用：已核准意見的文字（不含統計，統計在 math result 裡） */
   async publicStatements(): Promise<{ statements: { sid: number; text: string }[] }> {
     const rows = this.sql()
       .exec(`SELECT sid, text FROM statements WHERE status = 'approved' ORDER BY sid`)
@@ -436,7 +517,7 @@ export class Conversation extends DurableObject<Env> {
     if (rows.length === 0) return { ok: false, error: "not found" };
     const status = action === "approve" ? "approved" : "rejected";
     this.sql().exec(`UPDATE statements SET status = ? WHERE sid = ?`, status, sid);
-    this.bumpRevision();
+    this.markDirty(Date.now());
     return { ok: true };
   }
 
@@ -455,7 +536,7 @@ export class Conversation extends DurableObject<Env> {
       trimmed,
       now,
     );
-    this.bumpRevision();
+    this.markDirty(now);
     return { ok: true };
   }
 

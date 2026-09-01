@@ -51,10 +51,14 @@ function renderProgress(progress) {
 
 async function loadNext() {
   const data = await api(`/api/conversations/${convId}/next?pid=${pid}`);
-  renderProgress(data.progress);
-  if (data.statement) {
-    current = data.statement;
-    statementText.textContent = current.text;
+  showNext(data.statement, data.progress);
+}
+
+function showNext(statement, progress) {
+  renderProgress(progress);
+  if (statement) {
+    current = statement;
+    statementText.textContent = statement.text;
     show(voteSection, true);
     show(doneSection, false);
   } else {
@@ -69,11 +73,13 @@ document.querySelector(".vote-buttons").addEventListener("click", async (event) 
   if (!button || !current || busy) return;
   busy = true;
   try {
-    await api(`/api/conversations/${convId}/votes`, {
+    const result = await api(`/api/conversations/${convId}/votes`, {
       method: "POST",
       body: { pid, sid: current.sid, value: Number(button.dataset.vote) },
     });
-    await loadNext();
+    // 投票回應直接帶下一句，省一次請求
+    if (result.next !== undefined) showNext(result.next, result.progress);
+    else await loadNext();
   } catch (error) {
     fail(t("p.voteFail", { msg: error.message }));
   } finally {

@@ -97,14 +97,15 @@ async function main() {
       const idx = queue.shift();
       if (idx === undefined) return;
       const pid = crypto.randomUUID();
-      for (let v = 0; v < N_STATEMENTS; v++) {
-        const next = await timed("next", () => api(`/api/conversations/${cid}/next?pid=${pid}`));
-        const sid = next?.statement?.sid;
-        if (!sid) break;
+      // 首次抽題一次；之後用投票回應附帶的下一句（正式前端同款流程）
+      const first = await timed("next", () => api(`/api/conversations/${cid}/next?pid=${pid}`));
+      let statement = first?.statement ?? null;
+      for (let v = 0; v < N_STATEMENTS && statement; v++) {
         const value = [1, 1, -1, 0][Math.floor(Math.random() * 4)];
-        await timed("vote", () =>
-          api(`/api/conversations/${cid}/votes`, { method: "POST", body: { pid, sid, value } }),
+        const result = await timed("vote", () =>
+          api(`/api/conversations/${cid}/votes`, { method: "POST", body: { pid, sid: statement.sid, value } }),
         );
+        statement = result?.next ?? null;
       }
       done++;
       if (done % 50 === 0) {
