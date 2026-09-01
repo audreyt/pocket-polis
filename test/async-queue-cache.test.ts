@@ -996,6 +996,60 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     expect(aiRun.mock.calls.length).toBe(calls);
   });
 
+  it("a cached synthesis generated before the k-anonymity rule drops small-group portraits and tensions when served", async () => {
+    const { ctx } = convCtx();
+    const conv = new Conversation(ctx, {} as any);
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "settings",
+      JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
+    );
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "id", "conv123456");
+    const mathResult = {
+      computedAt: 42,
+      k: 3,
+      nParticipantsClustered: 11,
+      nParticipantsTotal: 11,
+      nVotes: 50,
+      statementStats: [],
+      consensus: { agree: [], disagree: [] },
+      groups: [
+        { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
+        { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
+        { id: 2, label: "C", size: 1, representative: [], statementStats: [] },
+      ],
+    };
+    vi.spyOn(conv as any, "getResults").mockResolvedValue({ result: mathResult, you: null });
+    vi.spyOn(conv, "publicStatements").mockResolvedValue({
+      statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
+    });
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "synthesis_data",
+      JSON.stringify({
+        status: "ready",
+        mathRevision: 42,
+        generatedAt: 1000,
+        overview: { summary: "x", citedStatementIds: [] },
+        themes: [],
+        commonGround: { keyPoints: [] },
+        groupPortraits: [
+          { groupId: 0, groupLabel: "A", size: 5, title: "", summary: "", keyStances: [], citedStatementIds: [] },
+          { groupId: 2, groupLabel: "C", size: 1, title: "lone", summary: "", keyStances: [], citedStatementIds: [] },
+        ],
+        tensions: [
+          { groupAId: 0, groupBId: 1, groupALabel: "A", groupBLabel: "B", topic: "ok", groupAPerspective: "", groupBPerspective: "", tensions: "", bridgingQuestion: "q", citedStatementIds: [1] },
+          { groupAId: 1, groupBId: 2, groupALabel: "B", groupBLabel: "C", topic: "leak", groupAPerspective: "", groupBPerspective: "", tensions: "", bridgingQuestion: "q", citedStatementIds: [1] },
+        ],
+      }),
+    );
+    const { response } = await conv.checkOrStartSynthesis("conv123456", 2000);
+    expect(response.status).toBe("ready");
+    if (response.status !== "ready") return;
+    expect(response.groupPortraits.map((p) => p.groupId)).toEqual([0]);
+    expect(response.tensions.map((t) => t.topic)).toEqual(["ok"]);
+  });
+
   it("updateSettings with only operational fields keeps a valid ready synthesis; title/description change invalidates it", async () => {
     const { ctx } = convCtx();
     const conv = new Conversation(ctx, {} as any);

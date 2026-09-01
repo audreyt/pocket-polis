@@ -150,6 +150,8 @@ export interface GenerateSensemakingInput {
 }
 
 const MIN_PARTICIPANTS_FOR_SYNTHESIS = 4;
+/** 兩群同意率極差達此值才算對這一對群體的分歧證據 */
+export const TENSION_AGREE_RATE_GAP = 0.35;
 const MIN_STATEMENTS_FOR_SYNTHESIS = 3;
 
 /**
@@ -176,6 +178,48 @@ export interface EvidenceBuckets {
   eligibleTensionSids: Set<number>;
   statementStatsMap: Map<number, StatementStat>;
   groupStatsMap: Map<number, Map<number, StatementStat>>;
+  /** 人數 >= MIN_GROUP_STATS_SIZE 的群：唯一可進提示、可被畫像、可被張力指名的群 */
+  reportableGroupIds: Set<number>;
+}
+
+/** 可報告的群（k-匿名下限以上）。小群只在地圖上以位置與人數出現。 */
+export function reportableGroups(mathResult: MathResult): MathResult["groups"] {
+  return mathResult.groups.filter((g) => g.size >= MIN_GROUP_STATS_SIZE);
+}
+
+/** 兩群對同一陳述的同意率極差；任一群無觀測即 null */
+export function pairAgreeRateGap(
+  groupStatsMap: Map<number, Map<number, StatementStat>>,
+  sid: number,
+  aId: number,
+  bId: number,
+): number | null {
+  const a = groupStatsMap.get(aId)?.get(sid);
+  const b = groupStatsMap.get(bId)?.get(sid);
+  if (!a || !b || a.seen === 0 || b.seen === 0) return null;
+  return Math.abs(a.agrees / a.seen - b.agrees / b.seen);
+}
+
+/**
+ * 某陳述是否真的區分「這一對」群體（張力引用的唯一合法依據）：
+ * 兩群皆有觀測，且同意率極差 >= TENSION_AGREE_RATE_GAP；
+ * 或恰好只有兩個可報告群時，該陳述是其中一群的代表性陳述（此時 out-group 就是另一群）。
+ * 三群以上時，A 的代表性陳述可能只是 A 與 C 不同、A 與 B 其實一致，因此不足以指名 A/B。
+ */
+export function distinguishesPair(
+  groupStatsMap: Map<number, Map<number, StatementStat>>,
+  reportableCount: number,
+  sid: number,
+  a: MathResult["groups"][number],
+  b: MathResult["groups"][number],
+): boolean {
+  const gap = pairAgreeRateGap(groupStatsMap, sid, a.id, b.id);
+  if (gap === null) return false;
+  if (gap >= TENSION_AGREE_RATE_GAP) return true;
+  return (
+    reportableCount === 2 &&
+    (a.representative.some((r) => r.sid === sid) || b.representative.some((r) => r.sid === sid))
+  );
 }
 
 export function computeEvidenceBuckets(
@@ -196,6 +240,8 @@ export function computeEvidenceBuckets(
     }
   }
   const hasGroupStats = (gid: number) => (groupStatsMap.get(gid)?.size ?? 0) > 0;
+  const reportable = reportableGroups(mathResult);
+  const reportableGroupIds = new Set(reportable.map((g) => g.id));
 
   // 1. 嚴格跨群共識候選集：
   // 交集數學管線檢定通過之 consensus 方向與每群平滑偽機率 (succ + 1) / (seen + 2) >= 0.60。
@@ -247,8 +293,9 @@ export function computeEvidenceBuckets(
   }
 
   // 2. 嚴格跨群分歧與張力集：
+  // 只有可報告群的代表性陳述能進張力池：小群的代表性方向等於個人投票
   const eligibleTensionSids = new Set<number>();
-  for (const g of mathResult.groups) {
+  for (const g of reportable) {
     for (const r of g.representative) {
       eligibleTensionSids.add(r.sid);
     }
@@ -267,7 +314,7 @@ export function computeEvidenceBuckets(
       if (rates.length >= 2) {
         const maxRate = Math.max(...rates);
         const minRate = Math.min(...rates);
-        if (maxRate - minRate >= 0.35) {
+        if (maxRate - minRate >= TENSION_AGREE_RATE_GAP) {
           eligibleTensionSids.add(sid);
         }
       }
@@ -281,7 +328,59 @@ export function computeEvidenceBuckets(
     eligibleTensionSids,
     statementStatsMap,
     groupStatsMap,
+    reportableGroupIds,
   };
+}
+
+/**
+ * 讀取時的守門：已快取的綜整（可能產生於 k-匿名規則之前）若含有不可報告群的畫像或指名它的張力，
+ * 於回傳前移除，不需重新生成（重新生成會消耗 AI 額度）。以目前的 mathResult 判定可報告群。
+ */
+export function dropUnreportableGroups<T extends { groupPortraits?: unknown; tensions?: unknown }>(
+  synthesis: T,
+  mathResult: MathResult,
+): T {
+  const ok = new Set(reportableGroups(mathResult).map((g) => g.id));
+  const portraits = Array.isArray(synthesis.groupPortraits)
+    ? (synthesis.groupPortraits as SensemakingGroupPortrait[]).filter((p) => ok.has(p.groupId))
+    : synthesis.groupPortraits;
+  const tensions = Array.isArray(synthesis.tensions)
+    ? (synthesis.tensions as SensemakingTension[]).filter((t) => ok.has(t.groupAId) && ok.has(t.groupBId))
+    : synthesis.tensions;
+  return { ...synthesis, groupPortraits: portraits, tensions };
+}
+
+/** 確定性 fallback 的張力配對：回傳證據最多的一對可報告群與其引用；無證據回傳 null。 */
+export function pickDeterministicTensionPair(
+  groups: MathResult["groups"],
+  groupStatsMap: Map<number, Map<number, StatementStat>>,
+  eligibleTensionSids: Iterable<number>,
+  known: Set<number>,
+): { gA: MathResult["groups"][number]; gB: MathResult["groups"][number]; cites: number[] } | null {
+  const pool = [...eligibleTensionSids].filter((sid) => known.has(sid));
+  let best: { gA: MathResult["groups"][number]; gB: MathResult["groups"][number]; cites: number[]; gapSum: number } | null =
+    null;
+  for (let i = 0; i < groups.length; i++) {
+    for (let j = i + 1; j < groups.length; j++) {
+      const gA = groups[i]!;
+      const gB = groups[j]!;
+      const scored = pool
+        .filter((sid) => distinguishesPair(groupStatsMap, groups.length, sid, gA, gB))
+        .map((sid) => ({ sid, gap: pairAgreeRateGap(groupStatsMap, sid, gA.id, gB.id) ?? 0 }))
+        .sort((x, y) => y.gap - x.gap || x.sid - y.sid)
+        .slice(0, 4);
+      if (scored.length === 0) continue;
+      const gapSum = scored.reduce((acc, x) => acc + x.gap, 0);
+      if (
+        !best ||
+        scored.length > best.cites.length ||
+        (scored.length === best.cites.length && gapSum > best.gapSum + 1e-9)
+      ) {
+        best = { gA, gB, cites: scored.map((x) => x.sid), gapSum };
+      }
+    }
+  }
+  return best ? { gA: best.gA, gB: best.gB, cites: best.cites } : null;
 }
 
 export function generateDeterministicSensemaking(input: {
@@ -781,6 +880,8 @@ export function rankConsensusSids(
   const strength = (sid: number): number => {
     let min = 1;
     for (const g of groups) {
+      // 無逐陳述統計的群（低於 k-匿名下限）不參與排序，否則所有 sid 都被壓成 0.5 而退化為 sid 順序
+      if ((groupStatsMap.get(g.id)?.size ?? 0) === 0) continue;
       const gs = groupStatsMap.get(g.id)?.get(sid);
       const seen = gs ? gs.seen : 0;
       const succ = gs ? Math.max(gs.agrees, gs.disagrees) : 0;
@@ -818,7 +919,9 @@ async function synthesizeDeliberation(
     eligibleTensionSids,
     statementStatsMap,
     groupStatsMap,
+    reportableGroupIds,
   } = buckets;
+  const reportable = mathResult.groups.filter((g) => reportableGroupIds.has(g.id));
 
   const validStatementIdSet = new Set(statements.map((s) => s.sid));
 
@@ -850,7 +953,7 @@ async function synthesizeDeliberation(
 
   // 排序並限制張力證據數量（最多 24 筆）：依跨群同意率最大差距排序，並以代表性陳述/SID 確定性 tie-break
   const repPriorityMap = new Map<number, { isRep: boolean; maxRepness: number }>();
-  for (const g of mathResult.groups) {
+  for (const g of reportable) {
     for (const r of g.representative) {
       const prev = repPriorityMap.get(r.sid);
       if (!prev) {
@@ -863,7 +966,7 @@ async function synthesizeDeliberation(
 
   function getInterGroupAgreeRateGap(sid: number): number {
     const rates: number[] = [];
-    for (const g of mathResult.groups) {
+    for (const g of reportable) {
       const gs = groupStatsMap.get(g.id)?.get(sid);
       if (gs && gs.seen > 0) {
         rates.push(gs.agrees / gs.seen);
@@ -901,7 +1004,7 @@ async function synthesizeDeliberation(
     if (!text) continue;
     shownTensionSids.add(sid);
     const groupBreakdowns: string[] = [];
-    for (const g of mathResult.groups) {
+    for (const g of reportable) {
       const gs = groupStatsMap.get(g.id)?.get(sid);
       if (gs && gs.seen > 0) {
         const aPct = Math.round((gs.agrees / gs.seen) * 100);
@@ -912,8 +1015,9 @@ async function synthesizeDeliberation(
     tensionItems.push(`[#${sid}] "${sanitizeUntrusted(text)}" -> ${groupBreakdowns.join(" | ")}`);
   }
 
+  // 群體畫像只送可報告群：小群的代表性方向會把個人投票送進模型
   const shownGroupRepSids = new Set<number>();
-  const groupPortraitsPrompt = mathResult.groups
+  const groupPortraitsPrompt = reportable
     .map((g) => {
       const repAgrees = g.representative
         .filter((r) => r.direction === "agree")
@@ -996,7 +1100,7 @@ JSON Schema:
   const userPromptUncapped = `Deliberation Title: ${sanitizeUntrusted(title)}
 Deliberation Description: ${sanitizeUntrusted(description)}
 Total Clustered Participants: ${mathResult.nParticipantsClustered}
-Number of Opinion Groups: ${mathResult.groups.length}
+Number of Opinion Groups: ${mathResult.groups.length} (${reportable.length} large enough to report; only these appear below and may be named)
 
 THEMES DISCOVERED:
 ${themesPrompt}
@@ -1148,9 +1252,9 @@ ${groupPortraitsPrompt}`;
   // 3. 群體畫像驗證：groupId 必須對應真實群體，僅在具有嚴格代表立場時採納模型描述，否則採確定性中立標籤
   const rawGroupPortraits = Array.isArray(p.groupPortraits) ? p.groupPortraits : [];
   const groupPortraits: SensemakingGroupPortrait[] = [];
-  const groupMap = new Map(mathResult.groups.map((g) => [g.id, g]));
+  const groupMap = new Map(reportable.map((g) => [g.id, g]));
 
-  for (const g of mathResult.groups) {
+  for (const g of reportable) {
     const found = rawGroupPortraits.find(
       (item) =>
         typeof item === "object" &&
@@ -1261,14 +1365,14 @@ ${groupPortraitsPrompt}`;
         // 必須為 1..4 筆引用且全部為數字
         const allNumeric = rawCitations.length >= 1 && rawCitations.length <= 4 && numericCitations.length === rawCitations.length;
 
-        // 嚴格 Fail Closed：全部引用必須在 shownTensionSids 且兩群均有真實觀測 (seen > 0)，任一不合整條張力捨棄
+        // 嚴格 Fail Closed：全部引用必須在 shownTensionSids 且真的區分「這一對」群體
+        // （兩群皆有觀測且同意率極差 >= 0.35，或雙群情境下為其中一群的代表性陳述），任一不合整條張力捨棄
         const allValidEvidence =
           allNumeric &&
           numericCitations.every(
             (sid) =>
               shownTensionSids.has(sid) &&
-              (groupStatsMap.get(groupA.id)?.get(sid)?.seen ?? 0) > 0 &&
-              (groupStatsMap.get(groupB.id)?.get(sid)?.seen ?? 0) > 0,
+              distinguishesPair(groupStatsMap, reportable.length, sid, groupA, groupB),
           );
 
         const dedupeCitations = allValidEvidence ? [...new Set(numericCitations)] : [];
@@ -1330,7 +1434,7 @@ export function buildDeterministicSynthesis(
   mathRevision: number,
   now: number,
 ): SensemakingSynthesis {
-  const { consensusAgreeSids, consensusDisagreeSids, eligibleConsensusSids, eligibleTensionSids, statementStatsMap, groupStatsMap } =
+  const { consensusAgreeSids, consensusDisagreeSids, eligibleConsensusSids, eligibleTensionSids, statementStatsMap, groupStatsMap, reportableGroupIds } =
     buckets;
   const known = new Set(statements.map((s) => s.sid));
   const assigned = new Set<number>();
@@ -1406,7 +1510,8 @@ export function buildDeterministicSynthesis(
     });
   }
 
-  const groupPortraits: SensemakingGroupPortrait[] = mathResult.groups.map((g) => {
+  const reportable = mathResult.groups.filter((g) => reportableGroupIds.has(g.id));
+  const groupPortraits: SensemakingGroupPortrait[] = reportable.map((g) => {
     const stances = g.representative
       .filter((rep) => known.has(rep.sid))
       .slice(0, 3)
@@ -1429,38 +1534,30 @@ export function buildDeterministicSynthesis(
     };
   });
 
+  // 張力：不預設「最大兩群」。對每一對可報告群，只取真的區分該對的陳述（依極差排序、最多 4 筆），
+  // 選證據最多（同數時極差總和最大、再依群 id）的一對；沒有任何一對有證據就不產生張力。
   const tensions: SensemakingTension[] = [];
-  if (mathResult.groups.length >= 2) {
-    const gA = mathResult.groups[0]!;
-    const gB = mathResult.groups[1]!;
-    const cites: number[] = [];
-    for (const sid of eligibleTensionSids) {
-      if (!known.has(sid)) continue;
-      const seenA = groupStatsMap.get(gA.id)?.get(sid)?.seen ?? 0;
-      const seenB = groupStatsMap.get(gB.id)?.get(sid)?.seen ?? 0;
-      if (seenA > 0 && seenB > 0) cites.push(sid);
-      if (cites.length >= 4) break;
-    }
-    if (cites.length > 0) {
-      tensions.push({
-        groupAId: gA.id,
-        groupALabel: gA.label,
-        groupBId: gB.id,
-        groupBLabel: gB.label,
-        topic: lang === "en" ? "Opinion divide" : "意見分歧",
-        groupAPerspective:
-          lang === "en" ? `Group ${gA.label} distinctive voting pattern.` : `第 ${gA.label} 群的代表性投票傾向。`,
-        groupBPerspective:
-          lang === "en" ? `Group ${gB.label} distinctive voting pattern.` : `第 ${gB.label} 群的代表性投票傾向。`,
-        tensions:
-          lang === "en"
-            ? "Statistically distinctive statements differ between the two largest groups."
-            : "兩大群體在統計上具區辨力的陳述方向不同。",
-        bridgingQuestion:
-          lang === "en" ? "Which of these differences could be bridged first?" : "哪些分歧最有機會先被拉近？",
-        citedStatementIds: cites,
-      });
-    }
+  const pair = pickDeterministicTensionPair(reportable, groupStatsMap, eligibleTensionSids, known);
+  if (pair) {
+    const { gA, gB, cites } = pair;
+    tensions.push({
+      groupAId: gA.id,
+      groupALabel: gA.label,
+      groupBId: gB.id,
+      groupBLabel: gB.label,
+      topic: lang === "en" ? "Opinion divide" : "意見分歧",
+      groupAPerspective:
+        lang === "en" ? `Group ${gA.label} distinctive voting pattern.` : `第 ${gA.label} 群的代表性投票傾向。`,
+      groupBPerspective:
+        lang === "en" ? `Group ${gB.label} distinctive voting pattern.` : `第 ${gB.label} 群的代表性投票傾向。`,
+      tensions:
+        lang === "en"
+          ? `Groups ${gA.label} and ${gB.label} vote differently on these statements (agree-rate gap of at least ${Math.round(TENSION_AGREE_RATE_GAP * 100)} points, or a distinctive statement of one of the two groups).`
+          : `第 ${gA.label} 群與第 ${gB.label} 群在這些陳述上的投票方向不同（同意率差距至少 ${Math.round(TENSION_AGREE_RATE_GAP * 100)} 個百分點，或為其中一群的代表性陳述）。`,
+      bridgingQuestion:
+        lang === "en" ? "Which of these differences could be bridged first?" : "哪些分歧最有機會先被拉近？",
+      citedStatementIds: cites,
+    });
   }
 
   return {

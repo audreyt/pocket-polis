@@ -73,7 +73,8 @@
 3. **群體感知證據池（Evidence Buckets）**：
    - **共識候選集**：交集數學管線方向與 Jigsaw `SummaryStats.minCommonGroundProb = 0.60` 規範（每群偽機率 $(succ+1)/(seen+2) \ge 0.60$；零觀測值為 0.5 自動 fail closed）。送入 Prompt 前依跨群 min-p 排序，上限 24 筆。
    - **分歧張力集**：納入各群代表性陳述與跨群同意率極差 $\ge 35\%$ 之陳述；依跨群同意率極大差距排序，代表性/SID tie-break，上限 24 筆。
-   - **小群 k-匿名**：人數低於 `MIN_GROUP_STATS_SIZE = 3` 的群體（k-means 可能產出 1～2 人群）不提供逐陳述票數：公開 `/results` 以 `redactSmallGroupStats` 移除其 `statementStats`；證據池、Prompt 群體對比與張力驗證一律視其 `seen = 0`，避免即使關閉開放資料仍能從群體統計反推個人投票。
+   - **小群 k-匿名（可報告群）**：人數低於 `MIN_GROUP_STATS_SIZE = 3` 的群體（k-means 可能產出 1～2 人群）不可報告：公開 `/results` 以 `redactSmallGroupStats` 移除其 `statementStats` 與 `representative`（代表性陳述對每群至少退而取一句，單人群的代表性方向就是那個人的投票）並標記 `statsRedacted`；證據池、共識排序、Prompt 的群體對比與群體畫像、AI 與確定性群體畫像、張力可指名的群體，一律只含可報告群。小群只以位置與人數出現在意見地圖上。規則生效前已快取的綜整於回傳時以 `dropUnreportableGroups` 依目前分群移除小群畫像與指名小群的張力，不重新生成。
+   - **張力配對證據**：引用的陳述必須真的區分被指名的「這一對」群體——兩群皆有觀測且同意率極差 $\ge 35\%$；或恰好只有兩個可報告群時，為其中一群的代表性陳述（out-group 即另一群）。三群以上時 A 的代表性陳述可能只是 A 與 C 不同、A/B 其實一致，因此不足以指名 A/B。確定性 fallback 不預設最大兩群，而是對每一對可報告群取符合上述規則的證據（依極差排序、最多 4 筆），選證據最多的一對；無證據則不產生張力。
 4. **嚴格引用審議綜整（Cited Synthesis）**：
    - `max_tokens: 4096`，system+user ≤ 48,000 UTF-8 bytes。
    - `overview`：引用必須屬於最終 Prompt 中實際展示的證據聯集（若引用缺失或無效，則中立化為確定性結構句並給予空引用，不保留模型文本）；參與者與投票脈絡採確定性字串。

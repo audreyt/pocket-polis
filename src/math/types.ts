@@ -41,6 +41,8 @@ export interface GroupResult {
    * 僅在 size >= MIN_GROUP_STATS_SIZE 時出現在公開 /results（見 pipeline.redactSmallGroupStats）。
    */
   statementStats?: StatementStat[];
+  /** 公開版：此群人數低於 k-匿名下限，statementStats 與 representative 已遮蔽 */
+  statsRedacted?: boolean;
 }
 
 export interface ConsensusStatement {
