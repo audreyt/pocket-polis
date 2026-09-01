@@ -996,6 +996,65 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     expect(aiRun.mock.calls.length).toBe(calls);
   });
 
+  it("a timed-out enqueued job is settled to deterministic for that revision, never re-enqueued; a new revision may enqueue once; a failed send may retry", async () => {
+    const { ctx } = convCtx();
+    const conv = new Conversation(ctx, {} as any);
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "settings",
+      JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
+    );
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "id", "conv123456");
+    const mathFor = (computedAt: number) => ({
+      computedAt,
+      k: 2,
+      nParticipantsClustered: 10,
+      nParticipantsTotal: 10,
+      nVotes: 50,
+      statementStats: [],
+      consensus: { agree: [], disagree: [] },
+      groups: [
+        { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
+        { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
+      ],
+    });
+    const results = vi.spyOn(conv as any, "getResults").mockResolvedValue({ result: mathFor(42), you: null });
+    vi.spyOn(conv, "publicStatements").mockResolvedValue({
+      statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
+    });
+    const MIN = 60 * 1000;
+
+    // 第一次：送件
+    const first = await conv.checkOrStartSynthesis("conv123456", 0);
+    expect(first.needsEnqueue?.sourceRevision).toBe(42);
+    // 15 分鐘內：pending，不重送
+    const during = await conv.checkOrStartSynthesis("conv123456", 10 * MIN);
+    expect(during.response.status).toBe("pending");
+    expect(during.needsEnqueue).toBeUndefined();
+    // 逾時：以確定性摘要結案，不重送
+    const after = await conv.checkOrStartSynthesis("conv123456", 16 * MIN);
+    expect(after.needsEnqueue).toBeUndefined();
+    expect(after.response.status).toBe("ready");
+    if (after.response.status !== "ready") return;
+    expect(after.response.generationMode).toBe("deterministic");
+    expect(after.response.mathRevision).toBe(42);
+    // 再問仍是同一份，永不重送
+    const again = await conv.checkOrStartSynthesis("conv123456", 40 * MIN);
+    expect(again.needsEnqueue).toBeUndefined();
+    expect(again.response.status).toBe("ready");
+
+    // 新 revision（資料變更 + 超過 24h 新鮮度窗）：允許送件一次
+    results.mockResolvedValue({ result: mathFor(99), you: null });
+    const fresh = await conv.checkOrStartSynthesis("conv123456", 25 * 60 * MIN);
+    expect(fresh.needsEnqueue?.sourceRevision).toBe(99);
+    // 送件失敗：解除標記，退避後可再送
+    await conv.markSensemakingEnqueueFailed(fresh.needsEnqueue!.jobId, 25 * 60 * MIN, "transport");
+    const blocked = await conv.checkOrStartSynthesis("conv123456", 25 * 60 * MIN + 10 * 1000);
+    expect(blocked.needsEnqueue).toBeUndefined();
+    const retry = await conv.checkOrStartSynthesis("conv123456", 25 * 60 * MIN + 31 * 1000);
+    expect(retry.needsEnqueue?.sourceRevision).toBe(99);
+  });
+
   it("a duplicate Queue delivery of the active job while the model call is in flight is a no-op and does not replace the AI result with fallback", async () => {
     const { ctx } = convCtx();
     const coord = makeCoordinator();

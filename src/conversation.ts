@@ -111,6 +111,8 @@ function aiClaimBlocksAttempt(raw: string | null, now: number): boolean {
   if (claim === "absent") return false;
   return now - claim.claimedAt < AI_ATTEMPT_WINDOW_MS;
 }
+/** 已為此 revision 送過 Queue 訊息（送件失敗時清除）。防止逾時任務被同一 revision 重複送件。 */
+const SYNTHESIS_ENQUEUED_REVISION_KEY = "synthesis_enqueued_revision";
 const MATH_CACHE_SCHEMA_VERSION = 2;
 
 interface MathCache {
@@ -721,12 +723,29 @@ export class Conversation extends DurableObject<Env> {
       return { response: det };
     }
 
-    // 4. 發起新生成任務
+    // 4. 發起新生成任務——每個 revision 最多送件一次（文件承諾的 4 次 Queue 操作上限）。
+    // 已送件但 15 分鐘逾時的任務（consumer 延遲、重試耗盡）不再重送：直接以確定性摘要結案。
+    if (this.getMeta(SYNTHESIS_ENQUEUED_REVISION_KEY) === String(currentRevision)) {
+      if (cached && cached.status === "ready" && cached.mathRevision === currentRevision) {
+        return { response: cached };
+      }
+      const lang = inferSourceLanguage(settings.title, settings.description, statements);
+      const det = this.persistDeterministicReady(
+        lang,
+        settings.title,
+        math.result,
+        statements,
+        currentRevision,
+        now,
+      );
+      return { response: det };
+    }
     const jobId = crypto.randomUUID();
     this.setMeta(
       "synthesis_pending",
       JSON.stringify({ jobId, sourceRevision: currentRevision, startedAt: now }),
     );
+    this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, String(currentRevision));
 
     const needsEnqueue = {
       conversationId,
@@ -752,6 +771,8 @@ export class Conversation extends DurableObject<Env> {
   }
 
   async markSensemakingEnqueueFailed(jobId: string, now: number, reason: string): Promise<void> {
+    // 送件失敗沒有消耗成功路徑的 Queue 操作：解除該 revision 的送件標記，退避後允許再送一次
+    this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
     const rawPending = this.getMeta("synthesis_pending");
     if (!rawPending) return;
     try {
