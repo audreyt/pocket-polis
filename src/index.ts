@@ -2,50 +2,159 @@ import type { Conversation, ConversationSettings } from "./conversation";
 import type { VoteValue } from "./math/types";
 
 export { Conversation } from "./conversation";
+export { NeuronCoordinator } from "./neuron-coordinator";
 
 const CONVERSATION_ID_PATTERN = /^[a-z0-9]{10}$/;
 const PID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_SEED_STATEMENTS = 50;
 
+export interface SensemakingQueueMessage {
+  conversationId: string;
+  sourceRevision: number;
+  jobId: string;
+}
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    try {
-      if (!url.pathname.startsWith("/api/")) {
-        return servePage(request, env, url);
-      }
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return handleFetchWithCache(request, env, ctx);
+  },
 
-      if (url.pathname === "/api/health") {
-        return json({ ok: true, storage: "durable-object-sqlite", math: "in-worker" });
+  async queue(
+    batch: MessageBatch<SensemakingQueueMessage>,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    for (const msg of batch.messages) {
+      try {
+        const { conversationId, sourceRevision, jobId } = msg.body;
+        if (!conversationId || !jobId) {
+          msg.ack();
+          continue;
+        }
+        const stub = env.CONVERSATION.getByName(`conv:${conversationId}`);
+        const result = await stub.processSensemakingJob(sourceRevision, jobId, Date.now());
+        if (result.ok) {
+          msg.ack();
+        } else if (result.retryable) {
+          msg.retry();
+        } else {
+          // 非 retryable（如模型失敗、配額上限）：已持久化當前 revision 之確定性 fallback 結果，直接 ack 避免無效消耗佇列與神經元
+          msg.ack();
+        }
+      } catch (error) {
+        console.error("queue worker error:", error);
+        msg.retry();
       }
-
-      if (url.pathname === "/api/conversations") {
-        if (request.method !== "POST") return jsonError("method not allowed", 405);
-        return createConversation(request, env);
-      }
-
-      const match = url.pathname.match(/^\/api\/conversations\/([a-z0-9]{10})(\/.*)?$/);
-      if (!match) return jsonError("not found", 404);
-      const conversationId = match[1]!;
-      const subPath = match[2] ?? "/";
-      const stub = env.CONVERSATION.getByName(`conv:${conversationId}`);
-      if (!(await stub.isConversation())) return jsonError("conversation not found", 404);
-      return handleConversationApi(request, url, stub, subPath);
-    } catch (error) {
-      console.error("unhandled", error instanceof Error ? error.stack : error);
-      // 免費額度觸頂（每日 00:00 UTC 重置）：給人話，不要 internal error
-      const message = error instanceof Error ? error.message : "";
-      if (message.includes("Exceeded allowed") && message.includes("free tier")) {
-        return jsonError(
-          "這個站今天的免費額度用完了，台北時間早上 8 點會自動恢復。The site hit today's free-tier quota; it resets at 00:00 UTC.",
-          503,
-        );
-      }
-      return jsonError("internal error", 500);
     }
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env, SensemakingQueueMessage>;
+
+// ---- Workers Cache Wrapper ----
+
+async function handleFetchWithCache(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const method = request.method;
+  const isGet = method === "GET";
+  const url = new URL(request.url);
+
+  // 嚴格白名單與排除清單：
+  // 1. 僅允許公開 GET 請求
+  // 2. 排除含有 Authorization 標頭
+  // 3. 排除含有 pid 個性化識別參數
+  // 4. 僅允許明確定義之公開頁面與 GET API 端點
+  const hasAuth = request.headers.has("Authorization");
+  const hasPid = url.searchParams.has("pid");
+  const reqCc = (request.headers.get("Cache-Control") || "").toLowerCase();
+  const hasBypassHeader =
+    reqCc.includes("no-cache") || reqCc.includes("no-store") || reqCc.includes("max-age=0");
+  const isCacheableCandidate =
+    isGet && !hasAuth && !hasPid && !hasBypassHeader && isPublicCacheablePath(url.pathname);
+
+  const cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
+
+  // 正則化快取鍵值：所有允許之公開路徑均不依賴 query 參數，正則化移除所有查詢字串，防止邊緣快取分裂
+  const cacheKey = new Request(url.origin + url.pathname, { method: "GET" });
+
+  if (isCacheableCandidate && cache) {
+    try {
+      const cached = await cache.match(cacheKey);
+      if (cached) {
+        return cached;
+      }
+    } catch {
+      // 忽略快取讀取異常
+    }
+  }
+
+  const response = await handleRequest(request, env, ctx, url);
+
+  // 只快取 200 成功回應，且排除含 no-store、private、Set-Cookie 或 Vary:* 之回應
+  if (isCacheableCandidate && cache && response.status === 200) {
+    const cc = (response.headers.get("Cache-Control") || "").toLowerCase();
+    const hasSetCookie = response.headers.has("Set-Cookie");
+    const vary = (response.headers.get("Vary") || "").toLowerCase();
+
+    if (
+      !cc.includes("no-store") &&
+      !cc.includes("private") &&
+      !hasSetCookie &&
+      vary !== "*"
+    ) {
+      ctx.waitUntil(cache.put(cacheKey, response.clone()).catch(() => {}));
+    }
+  }
+
+  return response;
+}
+
+async function handleRequest(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+): Promise<Response> {
+  try {
+    if (!url.pathname.startsWith("/api/")) {
+      return servePage(request, env, url);
+    }
+
+    if (url.pathname === "/api/health") {
+      return json(
+        { ok: true, storage: "durable-object-sqlite", math: "in-worker", queue: "enabled" },
+        200,
+        { "Cache-Control": "public, max-age=10, s-maxage=10" },
+      );
+    }
+
+    if (url.pathname === "/api/conversations") {
+      if (request.method !== "POST") return jsonError("method not allowed", 405);
+      return createConversation(request, env);
+    }
+
+    const match = url.pathname.match(/^\/api\/conversations\/([a-z0-9]{10})(\/.*)?$/);
+    if (!match) return jsonError("not found", 404);
+    const conversationId = match[1]!;
+    const subPath = match[2] ?? "/";
+    const stub = env.CONVERSATION.getByName(`conv:${conversationId}`);
+    if (!(await stub.isConversation())) return jsonError("conversation not found", 404);
+    return handleConversationApi(request, url, env, ctx, stub, subPath, conversationId);
+  } catch (error) {
+    console.error("unhandled", error instanceof Error ? error.stack : error);
+    // 免費額度觸頂（每日 00:00 UTC 重置）：給人話，不要 internal error
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("Exceeded allowed") && message.includes("free tier")) {
+      return jsonError(
+        "這個站今天的免費額度用完了，台北時間早上 8 點會自動恢復。The site hit today's free-tier quota; it resets at 00:00 UTC.",
+        503,
+      );
+    }
+    return jsonError("internal error", 500);
+  }
+}
 
 // ---- pages ----
 
@@ -93,6 +202,9 @@ const setMetaContent = (value: string) => ({
  * 讓分享出去的連結有正確的預覽文字。
  */
 async function rewritePageMeta(response: Response, env: Env, url: URL): Promise<Response> {
+  if (typeof HTMLRewriter === "undefined") {
+    return response;
+  }
   const rewriter = new HTMLRewriter()
     .on('meta[property="og:image"]', setMetaContent(`${url.origin}/og-image.png`))
     .on('meta[property="og:url"]', setMetaContent(url.origin + url.pathname));
@@ -139,6 +251,7 @@ function withSecurityHeaders(response: Response): Response {
   );
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "no-referrer");
+  headers.set("Cache-Control", "public, max-age=10, s-maxage=10");
   return new Response(response.body, { status: response.status, headers });
 }
 
@@ -186,6 +299,7 @@ async function createConversation(request: Request, env: Env): Promise<Response>
       },
     },
     201,
+    { "Cache-Control": "no-store" },
   );
 }
 
@@ -194,19 +308,26 @@ async function createConversation(request: Request, env: Env): Promise<Response>
 async function handleConversationApi(
   request: Request,
   url: URL,
+  env: Env,
+  ctx: ExecutionContext,
   stub: DurableObjectStub<Conversation>,
   subPath: string,
+  conversationId: string,
 ): Promise<Response> {
   const now = Date.now();
 
   if (subPath === "/" && request.method === "GET") {
-    return json(await stub.publicInfo());
+    return json(await stub.publicInfo(), 200, {
+      "Cache-Control": "public, max-age=10, s-maxage=10",
+    });
   }
 
   if (subPath === "/next" && request.method === "GET") {
     const pid = requirePid(url.searchParams.get("pid"));
     if (!pid) return jsonError("valid pid query param required", 400);
-    return json(await stub.nextStatement(pid, now));
+    return json(await stub.nextStatement(pid, now), 200, {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    });
   }
 
   if (subPath === "/votes" && request.method === "POST") {
@@ -220,7 +341,9 @@ async function handleConversationApi(
       return jsonError("value must be 1 (agree), -1 (disagree) or 0 (pass)", 400);
     }
     const result = await stub.castVote(pid, sid, body.value as VoteValue, now);
-    return result.ok ? json(result) : jsonError(result.error, 400);
+    return result.ok
+      ? json(result, 200, { "Cache-Control": "no-store" })
+      : jsonError(result.error, 400);
   }
 
   if (subPath === "/statements" && request.method === "POST") {
@@ -230,18 +353,78 @@ async function handleConversationApi(
     if (!pid) return jsonError("valid pid required", 400);
     if (typeof body.text !== "string") return jsonError("text required", 400);
     const result = await stub.submitStatement(pid, body.text, now);
-    return result.ok ? json(result) : jsonError(result.error, 400);
+    return result.ok
+      ? json(result, 200, { "Cache-Control": "no-store" })
+      : jsonError(result.error, 400);
   }
 
   if (subPath === "/statements-public" && request.method === "GET") {
-    return json(await stub.publicStatements());
+    return json(await stub.publicStatements(), 200, {
+      "Cache-Control": "public, max-age=30, s-maxage=30",
+    });
   }
 
   if (subPath === "/results" && request.method === "GET") {
-    const pid = requirePid(url.searchParams.get("pid"));
+    const pidParam = url.searchParams.get("pid");
+    const pid = pidParam ? requirePid(pidParam) : null;
     const results = await stub.getResults(pid, now);
     if (!results) return jsonError("not found", 404);
-    return json(results, 200, { "Cache-Control": "no-store" });
+
+    // 有 pid（個人化坐標）一律 no-store；匿名統計則給予 15s 快取
+    const cacheControl = pid
+      ? "no-store, no-cache, must-revalidate"
+      : "public, max-age=15, s-maxage=15";
+    return json(results, 200, { "Cache-Control": cacheControl });
+  }
+
+  if (subPath === "/synthesis" && request.method === "GET") {
+    const checkResult = await stub.checkOrStartSynthesis(conversationId, now);
+
+    // 若需要非同步生成且佇列已配置，await 確保傳輸成功，失敗則立即回復 pending 狀態
+    if (checkResult.needsEnqueue) {
+      if (!env.SENSEMAKING_QUEUE) {
+        console.error("SENSEMAKING_QUEUE binding is not configured");
+        await stub.markSensemakingEnqueueFailed(
+          checkResult.needsEnqueue.jobId,
+          now,
+          "AI synthesis is temporarily unavailable.",
+        );
+        const fallback = await stub.checkOrStartSynthesis(conversationId, now);
+        return json(fallback.response, 200, {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        });
+      }
+      try {
+        await env.SENSEMAKING_QUEUE.send(checkResult.needsEnqueue);
+      } catch (enqueueError) {
+        console.error("Queue enqueue error:", enqueueError);
+        await stub.markSensemakingEnqueueFailed(
+          checkResult.needsEnqueue.jobId,
+          now,
+          "AI synthesis is temporarily unavailable.",
+        );
+        const fallback = await stub.checkOrStartSynthesis(conversationId, now);
+        return json(fallback.response, 200, {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        });
+      }
+    }
+
+    const response = checkResult.response;
+    let cacheControl = "no-store, no-cache, must-revalidate";
+
+    if (response.status === "ready") {
+      const isRefreshing = "refreshPending" in response && response.refreshPending === true;
+      cacheControl = isRefreshing
+        ? "public, max-age=3, s-maxage=3"
+        : "public, max-age=300, s-maxage=300";
+    } else if (response.status === "pending") {
+      cacheControl = "public, max-age=3, s-maxage=3";
+    } else if (response.status === "insufficient") {
+      cacheControl = "public, max-age=60, s-maxage=60";
+    }
+
+    return json(response, 200, { "Cache-Control": cacheControl });
   }
 
   // pol.is 相容的 comments.csv（Sensemaker 等工具可直接讀取）
@@ -270,7 +453,7 @@ async function handleConversationApi(
     if (!token) return jsonError("unauthorized", 401);
     const overview = await stub.adminOverview(token);
     if ("error" in overview) return jsonError(overview.error, 401);
-    return json(overview, 200, { "Cache-Control": "no-store" });
+    return json(overview, 200, { "Cache-Control": "no-store, no-cache, must-revalidate" });
   }
 
   const moderate = subPath.match(/^\/admin\/statements\/(\d+)$/);
@@ -282,7 +465,9 @@ async function handleConversationApi(
       return jsonError("action must be approve or reject", 400);
     }
     const result = await stub.moderateStatement(token, Number(moderate[1]), body.action);
-    return result.ok ? json(result) : jsonError(result.error, result.error === "unauthorized" ? 401 : 400);
+    return result.ok
+      ? json(result, 200, { "Cache-Control": "no-store" })
+      : jsonError(result.error, result.error === "unauthorized" ? 401 : 400);
   }
 
   if (subPath === "/admin/statements" && request.method === "POST") {
@@ -291,7 +476,9 @@ async function handleConversationApi(
     const body = await readJson(request);
     if (!isRecord(body) || typeof body.text !== "string") return jsonError("text required", 400);
     const result = await stub.addSeedStatement(token, body.text, now);
-    return result.ok ? json(result) : jsonError(result.error, result.error === "unauthorized" ? 401 : 400);
+    return result.ok
+      ? json(result, 200, { "Cache-Control": "no-store" })
+      : jsonError(result.error, result.error === "unauthorized" ? 401 : 400);
   }
 
   if (subPath === "/admin/settings" && request.method === "POST") {
@@ -300,7 +487,9 @@ async function handleConversationApi(
     const body = await readJson(request);
     if (!isRecord(body)) return jsonError("invalid body", 400);
     const result = await stub.updateSettings(token, body as Partial<ConversationSettings>);
-    return result.ok ? json(result) : jsonError(result.error, result.error === "unauthorized" ? 401 : 400);
+    return result.ok
+      ? json(result, 200, { "Cache-Control": "no-store" })
+      : jsonError(result.error, result.error === "unauthorized" ? 401 : 400);
   }
 
   return jsonError("not found", 404);
@@ -361,7 +550,9 @@ function json(data: unknown, status = 200, extraHeaders: Record<string, string> 
 }
 
 function jsonError(message: string, status: number): Response {
-  return json({ error: message }, status);
+  return json({ error: message }, status, {
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+  });
 }
 
 function csvResponse(csv: string, filename: string): Response {
@@ -369,9 +560,30 @@ function csvResponse(csv: string, filename: string): Response {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${filename}"`,
-      "Cache-Control": "no-store",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
     },
   });
 }
 
+
+function isPublicCacheablePath(pathname: string): boolean {
+  if (
+    pathname === "/" ||
+    pathname === "/en" ||
+    pathname === "/guide" ||
+    pathname === "/en/guide"
+  ) {
+    return true;
+  }
+  if (/^\/(c|r)\/[a-z0-9]{10}$/.test(pathname)) {
+    return true;
+  }
+  if (pathname === "/api/health") {
+    return true;
+  }
+  if (/^\/api\/conversations\/[a-z0-9]{10}(\/(statements-public|results|synthesis))?$/.test(pathname)) {
+    return true;
+  }
+  return false;
+}
 export const _internal = { randomId, sha256Hex };

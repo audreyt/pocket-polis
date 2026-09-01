@@ -2,7 +2,18 @@ import { DurableObject } from "cloudflare:workers";
 import { computeMath } from "./math/pipeline";
 import { csvEscape, formatCommentsCsv } from "./export";
 import type { MathResult, OpinionPoint, VoteRow, VoteValue } from "./math/types";
-
+import {
+  AI_ATTEMPT_WINDOW_MS,
+  SYNTHESIS_AI_CLAIM_KEY,
+} from "./ai-budget";
+import { NEURON_COORDINATOR_INSTANCE } from "./neuron-coordinator";
+import {
+  generateDeterministicSensemaking,
+  generateSensemaking,
+  inferSourceLanguage,
+  type SensemakingResponse,
+  type SensemakingSynthesis,
+} from "./sensemaking";
 export interface ConversationSettings {
   title: string;
   description: string;
@@ -61,7 +72,46 @@ const PARTICIPANT_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 const CREATE_PER_HOUR = 10;
 const CREATE_PER_DAY = 50;
 
+
+export interface CheckSynthesisResult {
+  response: SensemakingResponse;
+  needsEnqueue?: {
+    conversationId: string;
+    sourceRevision: number;
+    jobId: string;
+  };
+}
+
+export interface ProcessSensemakingResult {
+  ok: boolean;
+  retryable?: boolean;
+}
+
+function parseAiClaim(raw: string | null): { claimedAt: number } | "absent" | "malformed" {
+  if (!raw) return "absent";
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return "malformed";
+    const claimedAt = (parsed as Record<string, unknown>).claimedAt;
+    if (typeof claimedAt !== "number" || !Number.isFinite(claimedAt) || claimedAt <= 0) {
+      return "malformed";
+    }
+    return { claimedAt };
+  } catch {
+    return "malformed";
+  }
+}
+
+function aiClaimBlocksAttempt(raw: string | null, now: number): boolean {
+  const claim = parseAiClaim(raw);
+  if (claim === "malformed") return true;
+  if (claim === "absent") return false;
+  return now - claim.claimedAt < AI_ATTEMPT_WINDOW_MS;
+}
+const MATH_CACHE_SCHEMA_VERSION = 2;
+
 interface MathCache {
+  schemaVersion: number;
   revision: number;
   publicResult: MathResult;
   pidPoints: Record<string, OpinionPoint>;
@@ -433,7 +483,23 @@ export class Conversation extends DurableObject<Env> {
 
   private readMathCache(): MathCache | null {
     const raw = this.getMeta("mathCache");
-    return raw ? (JSON.parse(raw) as MathCache) : null;
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as MathCache;
+      if (
+        !parsed ||
+        parsed.schemaVersion !== MATH_CACHE_SCHEMA_VERSION ||
+        typeof parsed.revision !== "number" ||
+        !parsed.publicResult ||
+        !Array.isArray(parsed.publicResult.groups) ||
+        parsed.publicResult.groups.some((g) => !Array.isArray(g.statementStats))
+      ) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
   }
 
   private recompute(id: string, now: number): MathCache {
@@ -456,11 +522,349 @@ export class Conversation extends DurableObject<Env> {
       computedAt: now,
       previousK: previousK && previousK >= 2 ? previousK : null,
     });
-    const cache: MathCache = { revision: this.revision(), publicResult, pidPoints };
+    const cache: MathCache = {
+      schemaVersion: MATH_CACHE_SCHEMA_VERSION,
+      revision: this.revision(),
+      publicResult,
+      pidPoints,
+    };
     this.setMeta("mathCache", JSON.stringify(cache));
     this.setMeta("mathComputedAt", String(now));
     this.dirty = false;
     return cache;
+  }
+
+  // ---- AI Sensemaking ----
+
+  private readReadySynthesis(): SensemakingSynthesis | null {
+    const rawCache = this.getMeta("synthesis_data");
+    if (!rawCache) return null;
+    try {
+      const cached = JSON.parse(rawCache) as SensemakingSynthesis;
+      return cached.status === "ready" ? cached : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private persistDeterministicReady(
+    lang: "zh" | "en",
+    title: string,
+    mathResult: MathResult,
+    statements: { sid: number; text: string }[],
+    mathRevision: number,
+    now: number,
+  ): SensemakingSynthesis {
+    const existing = this.readReadySynthesis();
+    if (existing && existing.mathRevision === mathRevision) {
+      this.setMeta("synthesis_pending", "");
+      return existing;
+    }
+    const det = generateDeterministicSensemaking({
+      lang,
+      title,
+      mathResult,
+      statements,
+      mathRevision,
+      now,
+    });
+    this.setMeta("synthesis_data", JSON.stringify(det));
+    this.setMeta("synthesis_pending", "");
+    this.setMeta("synthesis_failure", "");
+    return det;
+  }
+
+  async checkOrStartSynthesis(conversationId: string, now: number): Promise<CheckSynthesisResult> {
+    const settings = this.settings();
+    if (!settings) {
+      return { response: { status: "unavailable", reason: "Conversation not found" } };
+    }
+
+    const math = await this.getResults(null, now);
+    if (!math) {
+      return { response: { status: "unavailable", reason: "Results not available" } };
+    }
+
+    const statements = (await this.publicStatements()).statements;
+    const nParticipants = math.result.nParticipantsClustered;
+    const nGroups = math.result.groups.length;
+    const nStatements = statements.length;
+
+    if (nParticipants < 4 || nGroups < 2 || nStatements < 3) {
+      return {
+        response: {
+          status: "insufficient",
+          reason:
+            inferSourceLanguage(settings.title, settings.description, statements) === "en"
+              ? "Need at least 4 clustered participants across 2+ opinion groups to generate a multi-perspective synthesis."
+              : "需要至少 4 位完成足夠投票的參與者形成 2 個以上意見群體，才能生成多方審議綜整。",
+          counts: {
+            participants: math.result.nParticipantsTotal,
+            clustered: nParticipants,
+            statements: nStatements,
+            votes: math.result.nVotes,
+          },
+        },
+      };
+    }
+
+    const currentRevision = math.result.computedAt;
+    const rawCache = this.getMeta("synthesis_data");
+    let cached: SensemakingSynthesis | null = null;
+    if (rawCache) {
+      try {
+        cached = JSON.parse(rawCache) as SensemakingSynthesis;
+      } catch {
+        cached = null;
+      }
+    }
+
+    // 1. 若已有快取
+    if (cached && cached.status === "ready") {
+      // 資料完全未變更：快取永遠有效且為最新 (isStale = false)
+      if (cached.mathRevision === currentRevision) {
+        return { response: { ...cached, isStale: false } };
+      }
+
+      // 資料有變動：未滿 24 小時前，繼續回傳舊快取並標記 stale，不觸發重新生成
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+      if (now - cached.generatedAt < ONE_DAY_MS) {
+        return { response: { ...cached, isStale: true } };
+      }
+
+      // 已滿 24 小時：可進行一次每日刷新
+    }
+
+    // 2. 檢查失敗退避（若先前失敗且未過 retryAfter，回傳 unavailable 或舊快取）
+    const rawFailure = this.getMeta("synthesis_failure");
+    if (rawFailure) {
+      try {
+        const failure = JSON.parse(rawFailure) as { failedAt: number; retryAfter: number; reason: string };
+        if (now < failure.retryAfter) {
+          if (cached) {
+            return { response: { ...cached, isStale: true } };
+          }
+          return {
+            response: {
+              status: "unavailable",
+              reason: failure.reason || "AI synthesis is temporarily unavailable.",
+              retryAfter: failure.retryAfter,
+            },
+          };
+        }
+      } catch {
+        this.setMeta("synthesis_failure", "");
+      }
+    }
+
+    // 3. 檢查進行中任務（Pending 狀態持久化於 SQLite 防止重啟雪崩）
+    const rawPending = this.getMeta("synthesis_pending");
+    if (rawPending) {
+      try {
+        const pending = JSON.parse(rawPending) as { jobId: string; sourceRevision: number; startedAt: number };
+        const PENDING_TIMEOUT_MS = 15 * 60 * 1000;
+        if (now - pending.startedAt < PENDING_TIMEOUT_MS) {
+          if (cached) {
+            return { response: { ...cached, isStale: true, refreshPending: true } };
+          }
+          return {
+            response: {
+              status: "pending",
+              jobId: pending.jobId,
+              startedAt: pending.startedAt,
+              retryAfterMs: 3000,
+            },
+          };
+        }
+      } catch {
+        // Corrupted pending entry
+      }
+      this.setMeta("synthesis_pending", "");
+    }
+
+    const claimRaw = this.getMeta(SYNTHESIS_AI_CLAIM_KEY);
+    if (parseAiClaim(claimRaw) === "malformed") {
+      this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now }));
+    }
+    if (aiClaimBlocksAttempt(this.getMeta(SYNTHESIS_AI_CLAIM_KEY), now)) {
+      if (cached && cached.status === "ready") {
+        return { response: { ...cached, isStale: cached.mathRevision !== currentRevision } };
+      }
+      const lang = inferSourceLanguage(settings.title, settings.description, statements);
+      const det = this.persistDeterministicReady(
+        lang,
+        settings.title,
+        math.result,
+        statements,
+        currentRevision,
+        now,
+      );
+      return { response: det };
+    }
+
+    // 4. 發起新生成任務
+    const jobId = crypto.randomUUID();
+    this.setMeta(
+      "synthesis_pending",
+      JSON.stringify({ jobId, sourceRevision: currentRevision, startedAt: now }),
+    );
+
+    const needsEnqueue = {
+      conversationId,
+      sourceRevision: currentRevision,
+      jobId,
+    };
+    if (cached) {
+      return {
+        response: { ...cached, isStale: true, refreshPending: true },
+        needsEnqueue,
+      };
+    }
+
+    return {
+      response: {
+        status: "pending",
+        jobId,
+        startedAt: now,
+        retryAfterMs: 3000,
+      },
+      needsEnqueue,
+    };
+  }
+
+  async markSensemakingEnqueueFailed(jobId: string, now: number, reason: string): Promise<void> {
+    const rawPending = this.getMeta("synthesis_pending");
+    if (!rawPending) return;
+    try {
+      const pending = JSON.parse(rawPending) as { jobId: string };
+      if (pending.jobId === jobId) {
+        this.setMeta("synthesis_pending", "");
+        // 短暫佇列傳輸失敗退避 30 秒（非 AI 額度鎖定）
+        this.setMeta(
+          "synthesis_failure",
+          JSON.stringify({
+            failedAt: now,
+            retryAfter: now + 30000,
+            reason: reason || "AI synthesis is temporarily unavailable.",
+          }),
+        );
+      }
+    } catch {
+      this.setMeta("synthesis_pending", "");
+    }
+  }
+
+  async processSensemakingJob(
+    sourceRevision: number,
+    jobId: string,
+    now: number,
+  ): Promise<ProcessSensemakingResult> {
+    const rawPending = this.getMeta("synthesis_pending");
+    if (!rawPending) {
+      return { ok: true };
+    }
+    let pending: { jobId: string; sourceRevision: number; startedAt: number } | null = null;
+    try {
+      pending = JSON.parse(rawPending);
+    } catch {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    // 嚴格驗證 jobId 與 sourceRevision，過期或被覆蓋的任務冪等 no-op
+    if (!pending || pending.jobId !== jobId || pending.sourceRevision !== sourceRevision) {
+      return { ok: true };
+    }
+
+    const settings = this.settings();
+    if (!settings) {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    const math = await this.getResults(null, now);
+    if (!math) {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    const statements = (await this.publicStatements()).statements;
+    if (
+      math.result.nParticipantsClustered < 4 ||
+      math.result.groups.length < 2 ||
+      statements.length < 3
+    ) {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    const inferredLang = inferSourceLanguage(settings.title, settings.description, statements);
+    const currentRev = math.result.computedAt;
+    const finishDeterministic = (): ProcessSensemakingResult => {
+      this.persistDeterministicReady(
+        inferredLang,
+        settings.title,
+        math.result,
+        statements,
+        currentRev,
+        now,
+      );
+      return { ok: true };
+    };
+
+    const claimRaw = this.getMeta(SYNTHESIS_AI_CLAIM_KEY);
+    if (parseAiClaim(claimRaw) === "malformed") {
+      this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now }));
+      return finishDeterministic();
+    }
+    if (aiClaimBlocksAttempt(claimRaw, now)) {
+      return finishDeterministic();
+    }
+
+    const coordinatorNs = this.env.NEURON_COORDINATOR;
+    if (!this.env.AI || !coordinatorNs) {
+      return finishDeterministic();
+    }
+
+    this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now }));
+
+    try {
+      const response = await generateSensemaking({
+        ai: this.env.AI,
+        reserveGlobal: async (neurons: number) => {
+          try {
+            return await coordinatorNs.getByName(NEURON_COORDINATOR_INSTANCE).reserve(neurons);
+          } catch {
+            return false;
+          }
+        },
+        lang: inferredLang,
+
+        title: settings.title,
+        description: settings.description,
+        mathResult: math.result,
+        statements,
+        mathRevision: currentRev,
+        now,
+      });
+
+      if (response.status === "ready") {
+        this.setMeta("synthesis_data", JSON.stringify(response));
+        this.setMeta("synthesis_pending", "");
+        this.setMeta("synthesis_failure", "");
+        return { ok: true };
+      }
+
+      if (response.status === "insufficient") {
+        this.setMeta("synthesis_pending", "");
+        return { ok: true };
+      }
+      console.error("AI synthesis unavailable:", response.status === "unavailable" ? response.reason : response);
+      return finishDeterministic();
+    } catch (error) {
+      console.error("AI synthesis job error:", error);
+      return finishDeterministic();
+    }
   }
 
   // ---- admin ----
@@ -563,9 +967,11 @@ export class Conversation extends DurableObject<Env> {
       altUrl: typeof patch.altUrl === "string" ? sanitizeAltUrl(patch.altUrl) : current.altUrl,
     };
     this.setMeta("settings", JSON.stringify(next));
+    this.setMeta("synthesis_failure", "");
+    this.setMeta("synthesis_data", "");
+    this.setMeta("synthesis_pending", "");
     return { ok: true, settings: next };
   }
-
   // ---- data export ----
 
   private async canExport(token: string | null): Promise<boolean> {

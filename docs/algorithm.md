@@ -58,3 +58,33 @@
 ## 交叉驗證
 
 管理頁匯出的 `votes.csv`（長格式、參與者匿名化為 p1、p2⋯）可轉成官方 participants-votes 格式後餵給 [red-dwarf](https://github.com/polis-community/red-dwarf)（宣稱完整重現官方管線）比對分群結果。歡迎把比對結果開 issue。
+
+## AI 審議綜整管線（Sensemaking Pipeline）
+
+除上述純數學管線外，Pocket Polis 亦提供原生的多方審議綜整（Sensemaking）功能。本設計概念參考了 [g0v/sensemaker-frontend](https://github.com/g0v/sensemaker-frontend/tree/6303d8)（鎖定參照 commit `6303d8`）、[bestian/sensemaker-backend](https://github.com/bestian/sensemaker-backend/tree/164a71)（鎖定參照 commit `164a71`）以及 [bestian/sensemaking-tools](https://github.com/bestian/sensemaking-tools/tree/b5fb897b13c3f25aaffb8fb0d453b4defde1962a)（鎖定參照 commit `b5fb897b13c3f25aaffb8fb0d453b4defde1962a`），並針對 Serverless 與 Cloudflare 免費額度進行了完整的重構與強化：
+
+### 1. 四階段結構化綜整
+
+1. **主題發現（Topic Discovery）**：
+   - 以確定性穩定順序輸入陳述。Prompt 以 UTF-8 位元組封頂（`DISCOVERY_PROMPT_MAX_BYTES = 240_000`），所有陳述 ID 都會保留，正文在 UTF-8 邊界截斷。模型歸納 3–7 個語意互斥主題（保留 `other` ID 避免衝突）。`max_tokens: 2048`。
+2. **陳述歸類（Categorization）**：
+   - 以 50 筆為一批次進行有限並行分類（並行上限 3），`max_tokens: 1536`。每批 Prompt ≤ 32,000 UTF-8 bytes。
+   - 支援主要主題與選填次要主題，去重後之聯集計入 `theme.statementIds`。未歸類成功者在額度仍夠時重試 1 次，仍遺漏者確定性指派至 `other`。
+3. **群體感知證據池（Evidence Buckets）**：
+   - **共識候選集**：交集數學管線方向與 Jigsaw `SummaryStats.minCommonGroundProb = 0.60` 規範（每群偽機率 $(succ+1)/(seen+2) \ge 0.60$；零觀測值為 0.5 自動 fail closed）。送入 Prompt 前依跨群 min-p 排序，上限 24 筆。
+   - **分歧張力集**：納入各群代表性陳述與跨群同意率極差 $\ge 35\%$ 之陳述；依跨群同意率極大差距排序，代表性/SID tie-break，上限 24 筆。
+4. **嚴格引用審議綜整（Cited Synthesis）**：
+   - `max_tokens: 4096`，system+user ≤ 48,000 UTF-8 bytes。
+   - `overview`：引用必須屬於最終 Prompt 中實際展示的證據聯集（若引用缺失或無效，則中立化為確定性結構句並給予空引用，不保留模型文本）；參與者與投票脈絡採確定性字串。
+   - `commonGround`：摘要採確定性統計描述；keyPoints 引用必須全部有效且具有一致的確定性方向（agree 或 disagree，混合方向整條捨棄）。
+   - `tensions`：必須指名真實相比較的兩群體 ID (`groupAId` 與 `groupBId`)，引用必須在該兩群均有真實觀測紀錄 (`seen > 0`)。
+   - `groupPortraits`：僅在模型於 fallback 介入前具有經檢定之合法代表立場時採納模型標題與摘要描述，否則退回確定性中立標籤。
+   - 入場失敗或階段放不進 9,000 神經元帳本時，回傳 `generationMode: "deterministic"` 的統計摘要（`model: "deterministic"`），可快取為 ready，不標 Gemma。
+
+### 2. Pocket Polis 免費額度與架構特色
+
+- **神經元硬契約（不是平均值）**：`@cf/google/gemma-4-26b-a4b-it` 官方費率 `輸入上限 token × 9091 / 1e6 + max_tokens × 27273 / 1e6`。輸入上限 = `utf8_bytes(system)+utf8_bytes(user)+256`，不是字元數，也不是精確 token。每次 `ai.run` 前同時做本地 `tryReserve` 與部署級 UTC 日協調器原子預留；本應用日上限 **9,000**（低於每日 10,000 免費額 1,000）。同一 Cloudflare 帳號的其他 Worker 不在此協調器內。對話 DO 在第一次模型呼叫前寫入滾動 24h AI 聲明，Queue 重試不能雙花。最終綜整額度先在本地扣留，實際呼叫前仍向協調器預留。
+- **Queue ≠ 神經元節省**：Cloudflare Queues（`pocket-polis-sensemaking`，`max_batch_size: 1`, `max_retries: 1`）只做耐久與延遲隔離。一則 <64KB 訊息最多 **4 次 Queue 操作**（1 寫 + 2 讀 + 1 刪）。成功路徑 3 次。與神經元分屬不同免費額度。
+- **24 小時新鮮度週期**：成功生成後，同 revision 之 ready 快取永久有效（`isStale: false`）；資料變更產生新 revision 時，未滿 24 小時先回傳舊快取並標記 `isStale: true`；滿 24 小時後方允許背景刷新（`refreshPending: true`）並排程重新生成。確定性 fallback 亦持久化為當前 revision 之 `status: "ready"`（`generationMode: "deterministic"`），同 revision 永久有效不重複 enqueue；僅在資料產生新 revision 且超過滾動 24 小時 AI 嘗試窗口後方可再次嘗試 AI 生成。
+- **邊緣快取白名單**：透過 Workers Cache API 提供 3s–300s TTL 之邊緣快取，採用嚴格公開白名單（`/`, `/en`, `/guide`, `/en/guide`, `/c/:id`, `/r/:id`, `/api/health`, `/api/conversations/:id` 及 public statements/anonymous results/synthesis），正則化移除所有查詢字串，排除個人化（`?pid=`）、授權標頭、管理端，並支援 `Cache-Control: no-cache` 強制重新整理直通 DO。
+- **零付費依賴**：完全運行在 Cloudflare 免費額度內（10,000 神經元/日、10,000 佇列操作/日）。

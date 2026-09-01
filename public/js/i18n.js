@@ -3,7 +3,7 @@
 const STORAGE_KEY = "polis-serverless:lang";
 
 // key: [zh, en]。{名稱} 為變數插槽。
-const STRINGS = {
+export const STRINGS = {
   "app.loading": ["載入中⋯", "Loading…"],
   "app.sourceLink": ["原始碼", "Source"],
   "app.badUrl": ["網址不正確。", "This link is not valid."],
@@ -53,6 +53,39 @@ const STRINGS = {
   "r.votes": ["票", "Votes"],
   "r.statements": ["意見", "Statements"],
   "r.groups": ["意見群", "Opinion groups"],
+  "r.aiTitle": ["AI 審議共識與群體洞察", "AI Deliberation Synthesis & Insights"],
+  "r.aiLoading": ["AI 正在歸納審議共識與群體畫像⋯", "AI is analyzing deliberation consensus and group perspectives…"],
+  "r.aiPending": ["AI 正在背景分析多方觀點與議題焦點，請稍候⋯", "AI is analyzing deliberation perspectives in the background…"],
+  "r.aiUnavailable": ["AI 綜整暫時無法提供，量化意見地圖與投票數據不受影響。", "AI synthesis is temporarily unavailable. Quantitative map and voting data remain fully accessible."],
+  "r.aiInsufficient": ["尚未形成足夠分群以進行 AI 跨群綜整（需 4 人以上且 2 群以上）。", "Not enough participant clustering yet for AI synthesis (requires 4+ participants and 2+ groups)."],
+  "r.aiModelTag": ["模型：Gemma 4 26B", "Model: Gemma 4 26B"],
+  "r.aiModelDeterministic": ["統計摘要（非生成模型）", "Statistical summary (no generative model)"],
+  "r.aiGeneratedAt": ["生成於 {time}", "Generated at {time}"],
+  "r.aiStale": ["先前分析快照（陳述已更新）", "Previous snapshot (statements updated)"],
+  "r.aiStaleNotice": [
+    "自上次分析產出後已有新投票或意見，下方展示先前產出時之完整分析（每 24 小時至多重新綜整一次）：",
+    "New votes or statements have been added since last analysis. Showing prior snapshot (refreshes at most once every 24h):",
+  ],
+  "r.provenance": [
+    "依據 {s} 則意見、{v} 票、{p} 位參與者之數據分析",
+    "Based on {s} statements, {v} votes, {p} participants at generation time",
+  ],
+  "r.evidenceQuote": ["引用意見", "Cited statement"],
+  "r.clearFilter": ["清除篩選", "Clear filter"],
+  "r.backToAll": ["顯示全部意見", "Show all statements"],
+  "r.filterByTheme": ["看此主題意見", "View statements"],
+  "r.themesTitle": ["議題分類與核心焦點", "Thematic Directory & Key Issues"],
+  "r.themesHint": ["將所有意見依主題歸類，點選主題可查看該焦點下的所有意見與投票率。", "All statements grouped into thematic areas. Click a theme to inspect assigned statements and voting breakdowns."],
+  "r.allThemes": ["全部主題", "All themes"],
+  "r.themeStatements": ["{n} 則意見", "{n} statements"],
+  "r.consensusTensionTitle": ["跨群共識與關鍵張力", "Common Ground & Deliberation Tensions"],
+  "r.commonGroundSubtitle": ["跨群共通價值與共識原則", "Shared Values & Common Ground Principles"],
+  "r.tensionsSubtitle": ["群間分歧點與推進對話提問", "Differences in Perspective & Bridging Questions"],
+  "r.tensionsHint": ["立場差異最顯著的張力所在，以及有助於促進共識的對話切入點。", "Where perspectives diverge most strongly, alongside constructive questions to bridge the divide."],
+  "r.tensionsEmpty": ["目前各意見群體間尚未形成顯著的張力或對立焦點。", "No significant cross-group tensions identified yet."],
+  "r.groupPerspective": ["第 {label} 群觀點：", "Group {label} perspective:"],
+  "r.bridgingQuestionLabel": ["促進共識的提問：", "Bridging question: "],
+  "r.groupPortraitsTitle": ["各群視角畫像", "Group Perspective Portraits"],
   "r.mapTitle": ["意見地圖", "Opinion map"],
   "r.mapHint": [
     "每個點是一位參與者：投票越相似的人靠得越近，顏色代表想法相近的群。投票數還不夠的參與者暫時不會出現。",
@@ -82,6 +115,7 @@ const STRINGS = {
   "r.disagreeWord": ["不同意", "disagree"],
   "r.groupNone": ["還沒有顯著的代表性意見。", "No distinctive statements yet."],
   "r.allTitle": ["全部意見", "All statements"],
+  "r.allHint": ["所有經審核通過的意見陳述及其全體投票分布。", "All approved statements and their overall voting distributions."],
   "r.allEmpty": ["還沒有意見。", "No statements yet."],
   "r.counts": [
     "{ap}% 同意（{a}）· {dp}% 不同意（{d}）· 略過 {p}",
@@ -101,7 +135,6 @@ const STRINGS = {
     "Same format as the comments.csv from a pol.is report, ready for AI sensemaking tools; authors are anonymized as sequence numbers.",
   ],
   "r.exportSensemaker": ["試試 vTaiwan Sensemaker →", "Try vTaiwan Sensemaker →"],
-
   // 管理頁
   "a.title": ["管理頁", "Host controls"],
   "a.manage": ["管理：{title}", "Hosting: {title}"],
@@ -162,7 +195,7 @@ const STRINGS = {
 };
 
 export function currentLang() {
-  const fromQuery = new URLSearchParams(location.search).get("lang");
+  const fromQuery = typeof location !== "undefined" ? new URLSearchParams(location.search).get("lang") : null;
   if (fromQuery === "en" || fromQuery === "zh") {
     try {
       localStorage.setItem(STORAGE_KEY, fromQuery);
@@ -172,12 +205,13 @@ export function currentLang() {
     return fromQuery;
   }
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
     if (stored === "en" || stored === "zh") return stored;
   } catch {
     /* ignore */
   }
-  return (navigator.language || "zh").toLowerCase().startsWith("zh") ? "zh" : "en";
+  const navLang = typeof navigator !== "undefined" && typeof navigator.language === "string" ? navigator.language : "zh";
+  return navLang.toLowerCase().startsWith("zh") ? "zh" : "en";
 }
 
 let lang = currentLang();
