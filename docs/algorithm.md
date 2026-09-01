@@ -58,3 +58,31 @@
 ## 交叉驗證
 
 管理頁匯出的 `votes.csv`（長格式、參與者匿名化為 p1、p2⋯）可轉成官方 participants-votes 格式後餵給 [red-dwarf](https://github.com/polis-community/red-dwarf)（宣稱完整重現官方管線）比對分群結果。歡迎把比對結果開 issue。
+
+## AI 審議綜整管線（Sensemaking Pipeline）
+
+除上述純數學管線外，Pocket Polis 亦提供原生的多方審議綜整（Sensemaking）功能。本設計概念參考了 [g0v/sensemaker-frontend](https://github.com/g0v/sensemaker-frontend/tree/6303d8)（鎖定參照 commit `6303d8`）、[bestian/sensemaker-backend](https://github.com/bestian/sensemaker-backend/tree/164a71)（鎖定參照 commit `164a71`）以及 [bestian/sensemaking-tools](https://github.com/bestian/sensemaking-tools/tree/b5fb897b13c3f25aaffb8fb0d453b4defde1962a)（鎖定參照 commit `b5fb897b13c3f25aaffb8fb0d453b4defde1962a`），並針對 Serverless 與 Cloudflare 免費額度進行了完整的重構與強化：
+
+### 1. 四階段結構化綜整
+
+1. **主題發現（Topic Discovery）**：
+   - 以確定性穩定順序輸入陳述，依 ~160k 字元預算衍生每句配額（注意字元數不完全等同 tokenizer token），由模型歸納 3–7 個語意互斥主題（保留 `other` ID 避免衝突）。`max_completion_tokens: 1200`。
+2. **陳述歸類（Categorization）**：
+   - 以 50 筆為一批次進行有限並行分類（並行上限 3），`max_completion_tokens: 1536`。
+   - 支援主要主題與選填次要主題，去重後之聯集計入 `theme.statementIds`。未歸類成功者重試 1 次，仍遺漏者確定性指派至 `other` 主題，絕不隨機分配，無損保留所有陳述。
+3. **群體感知證據池（Evidence Buckets）**：
+   - **共識候選集**：交集數學管線方向與 Jigsaw `SummaryStats.minCommonGroundProb = 0.60` 規範（每群偽機率 $(succ+1)/(seen+2) \ge 0.60$；零觀測值為 0.5 自動 fail closed）。
+   - **分歧張力集**：納入各群代表性陳述與跨群同意率極差 $\ge 35\%$ 之陳述；送入 Prompt 時依真實跨群同意率極大差距（inter-group agree-rate gap）排序，並以代表性陳述/SID 確定性 tie-break 限制上限（前 24 筆），防止 800 句時第三階段 Prompt 爆炸。
+4. **嚴格引用審議綜整（Cited Synthesis）**：
+   - `overview`：引用必須屬於最終 Prompt 中實際展示的證據聯集（若引用缺失或無效，則中立化為確定性結構句並給予空引用，不保留模型文本）；參與者與投票脈絡採確定性字串。
+   - `commonGround`：摘要採確定性統計描述；keyPoints 引用必須全部有效且具有一致的確定性方向（agree 或 disagree，混合方向整條捨棄）。
+   - `tensions`：必須指名真實相比較的兩群體 ID (`groupAId` 與 `groupBId`)，引用必須在該兩群均有真實觀測紀錄 (`seen > 0`)。
+   - `groupPortraits`：僅在模型於 fallback 介入前具有經檢定之合法代表立場時採納模型標題與摘要描述，否則退回確定性中立標籤。
+
+### 2. Pocket Polis 免費額度與架構特色
+
+- **原生 Workers AI 模型**：採用 `@cf/google/gemma-4-26b-a4b-it`，計費公式為 `輸入 token × 9091 / 1e6 + 輸出 token × 27273 / 1e6`，硬性 completion token 上限為 29,872（重試極端情況為 54,448），設計目標確保單場活躍討論在 24 小時滾動窗口內消耗低於 10,000 顆免費神經元。
+- **非同步 Queue 排程**：透過 Cloudflare Queues（`pocket-polis-sensemaking`，15 分鐘 consumer wall time，`max_batch_size: 1`, `max_retries: 1`）非同步執行，`GET /api/conversations/:id/synthesis` 立即回應。
+- **24 小時新鮮度週期**：成功生成後以 24 小時滾動窗口提供快取（資料變更時標記 `isStale: true`，滿 24 小時背景刷新 `refreshPending: true`）；若生成失敗則退避至隔日 00:00 UTC 重置。
+- **邊緣快取白名單**：透過 Workers Cache API 提供 3s–300s TTL 之邊緣快取，採用嚴格公開白名單（`/`, `/en`, `/guide`, `/en/guide`, `/c/:id`, `/r/:id`, `/api/health`, `/api/conversations/:id` 及 public statements/anonymous results/synthesis），正則化移除所有查詢字串，排除個人化（`?pid=`）、授權標頭、管理端，並支援 `Cache-Control: no-cache` 強制重新整理直通 DO。
+- **零付費依賴**：完全運行在 Cloudflare 免費額度內（10,000 神經元/日、10,000 佇列操作/日）。

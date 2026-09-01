@@ -4,7 +4,7 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/pocket-polis)
 
-Live site: **<https://polis.mashbean.net/en>** · Demo: [a simulated defense-budget referendum](https://polis.mashbean.net/r/qx7fc5m3ql?lang=en) with 113 fictional legislators ([how it was made](docs/demo-legislature-sim.md))
+Live site: **<https://polis.tw/en>** · Demo: [a simulated defense-budget referendum](https://polis.tw/r/w3b89q4y8j?lang=en) with 113 fictional legislators ([how it was made](docs/demo-legislature-sim.md))
 
 正體中文說明：[README.zh-TW.md](README.zh-TW.md) ·（Pocket Polis 的中文名稱是「口袋審議」——讓你可以隨時發起審議的口袋工具）
 
@@ -14,7 +14,7 @@ Live site: **<https://polis.mashbean.net/en>** · Demo: [a simulated defense-bud
 - **Participate**: anonymous voting (agree / disagree / pass), submit new statements, low-vote statements get shown first
 - **Moderate**: approve or reject statements, open/close the conversation
 - **Math, live**: mean imputation → PCA (power iteration, sparsity-aware projection) → k-means (silhouette picks 2–5 groups, with k-smoothing so groups stay stable between refreshes) → representative statements per group (repness + proportion tests) → group-aware consensus — computed inside the Worker
-- **Report**: live opinion map with group outlines, "you are here", per-group representative statements, consensus list, anonymized CSV export (including a pol.is-compatible `comments.csv` that drops straight into [Sensemaker](https://make.vtaiwan.tw/))
+- **Report & AI Sensemaking**: live opinion map with group outlines, "you are here", thematic issue directory, cross-group common ground & deliberation tension insights with citations (via native Workers AI `@cf/google/gemma-4-26b-a4b-it`), per-group representative statements, consensus list, anonymized CSV export (including a pol.is-compatible `comments.csv` that drops straight into [Sensemaker](https://make.vtaiwan.tw/))
 - **Bilingual**: full zh-Hant / English UI (`?lang=`, auto-detected)
 
 ## Architecture
@@ -22,15 +22,17 @@ Live site: **<https://polis.mashbean.net/en>** · Demo: [a simulated defense-bud
 ```text
 Browser (vanilla ES modules — no framework, no build step)
    │
-Cloudflare Worker (routing, validation, security headers, static assets)
+Cloudflare Worker (routing, validation, security headers, Workers Cache, static assets)
    │
 Durable Object "Conversation" (one per conversation)
-   ├─ built-in SQLite: statements / votes / participants
-   └─ math pipeline (src/math/*): recomputed on change, cached
+   ├─ built-in SQLite: statements / votes / participants / synthesis cache
+   ├─ math pipeline (src/math/*): recomputed on change, cached
+   └─ AI queue consumer: Workers AI (@cf/google/gemma-4-26b-a4b-it) via Cloudflare Queues
 ```
 
-No KV, D1, R2, queues, or external services — Durable Object SQLite is the only database. Zero runtime dependencies. Works on the Cloudflare free plan (100k requests/day, 5 GB storage). What "serverless" means here, and the alternatives considered: [docs/is-this-serverless.md](docs/is-this-serverless.md) (zh).
+Self-hosted single-conversation deployments run entirely within Cloudflare Workers Free allocations: 100k requests/day, 10k Workers AI neurons/day, 10k Queues operations/day, and 5 GB storage. Zero runtime dependencies and no paid services required. Deliberation synthesis is budgeted for 1 complete generation per active conversation per rolling 24h window (with unchanged data cached indefinitely and failure retries backing off to the next 00:00 UTC reset). Public responses are cached at the edge via an explicit Workers Cache API allowlist.
 
+**Free-Tier Neuron Budget**: Workers AI `@cf/google/gemma-4-26b-a4b-it` is billed at `input_tokens × 9091 / 1e6 + output_tokens × 27273 / 1e6`. Prompt caps are explicit: topic discovery prompt derived from a total ~160k char budget across all statements (note characters are not tokenizer-exact), categorization batches capped at 50 statements each (up to 16 batches for 800 statements), and final synthesis prompt capped at 24 tension statements plus consensus and group representatives. Hard completion token ceilings are 1,200 for topic discovery, 16 × 1536 = 24,576 for categorization, and 4,096 for synthesis (29,872 total completion tokens normal ceiling, or 54,448 tokens if all 16 batches are retried). The design target is <10,000 daily free neurons for one conversation per rolling 24h without asserting an unmeasured exact total. What "serverless" means here, and the alternatives considered: [docs/is-this-serverless.md](docs/is-this-serverless.md) (zh).
 ## Quick start
 
 ```bash
@@ -56,7 +58,7 @@ npx --yes github:mashbean/pocket-polis install-skill
 
 ## Algorithm fidelity
 
-The algorithms are a clean-room reimplementation from the published Polis literature ([compdemocracy.org/algorithms](https://compdemocracy.org/algorithms/), Small et al. 2021); no code from the AGPL upstream is used. Validated against the official Polis open datasets (CC BY 4.0) — see [docs/validation-opendata.md](docs/validation-opendata.md): on vTaiwan UberX, Brexit, and Bowling Green the group count matches the official runs exactly, with Adjusted Rand Index 0.78–0.86 and purity 0.94–0.96; the largest dataset (225k votes, 607 statements, 2,010 participants) computes in 236 ms. Known deviations: [docs/algorithm.md](docs/algorithm.md).
+The mathematical Polis pipeline (PCA, k-means clustering, consensus detection, and representativeness) is a clean-room reimplementation from the published Polis literature ([compdemocracy.org/algorithms](https://compdemocracy.org/algorithms/), Small et al. 2021); no code from the AGPL upstream is used. The native sensemaking pipeline draws design concepts from [g0v/sensemaker-frontend](https://github.com/g0v/sensemaker-frontend/tree/6303d8), [bestian/sensemaker-backend](https://github.com/bestian/sensemaker-backend/tree/164a71), and [bestian/sensemaking-tools](https://github.com/bestian/sensemaking-tools/tree/b5fb897b13c3f25aaffb8fb0d453b4defde1962a), re-architected for serverless execution. Validated against the official Polis open datasets (CC BY 4.0) — see [docs/validation-opendata.md](docs/validation-opendata.md): on vTaiwan UberX, Brexit, and Bowling Green the group count matches the official runs exactly, with Adjusted Rand Index 0.78–0.86 and purity 0.94–0.96; the largest dataset (225k votes, 607 statements, 2,010 participants) computes in 236 ms. Known deviations: [docs/algorithm.md](docs/algorithm.md).
 
 ## License and naming
 

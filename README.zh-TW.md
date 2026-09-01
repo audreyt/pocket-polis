@@ -4,9 +4,9 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/pocket-polis)
 
-線上：**<https://polis.mashbean.net>** · Demo：[【模擬】國防軍購特別預算公投](https://polis.mashbean.net/r/3ovoxq5c6o)（113 位虛構立委的模擬樣本，見 [docs/demo-legislature-sim.md](docs/demo-legislature-sim.md)）· English: [README.md](README.md)
+線上：**<https://polis.tw>** · Demo：[【模擬】國防軍購特別預算公投](https://polis.tw/r/likyl6aasu)（113 位虛構立委的模擬樣本，見 [docs/demo-legislature-sim.md](docs/demo-legislature-sim.md)）· English: [README.md](README.md)
 
-給審議工作者的實務指南：<https://polis.mashbean.net/guide>
+給審議工作者的實務指南：<https://polis.tw/guide>
 
 ## 它做什麼
 
@@ -14,7 +14,7 @@
 - **參與**：匿名投票（同意／不同意／略過）、提出新意見，票少的意見優先曝光
 - **審核**：核准或退回意見、開關討論
 - **即時計算**：平均插補 → PCA（power iteration、sparsity-aware projection）→ k-means（silhouette 選 2–5 群，含 k-smoothing 讓群數在重新整理間保持穩定）→ 各群代表性意見（repness＋比例檢定）→ 跨群共識——全部在 Worker 內完成
-- **結果頁**：含群體輪廓的即時意見地圖、「你在這裡」、各群代表意見、共識清單、匿名化 CSV 匯出（含 pol.is 相容的 `comments.csv`，可直接上傳 [Sensemaker](https://make.vtaiwan.tw/) 做 AI 綜整）
+- **結果頁與 AI 審議綜整**：含群體輪廓的即時意見地圖、「你在這裡」、議題分類焦點、跨群共通價值與關鍵張力分析附精確引用（原生 Cloudflare Workers AI `@cf/google/gemma-4-26b-a4b-it`）、各群代表意見、共識清單、匿名化 CSV 匯出（含 pol.is 相容的 `comments.csv`，可直接上傳 [Sensemaker](https://make.vtaiwan.tw/) 做 AI 綜整）
 - **雙語**：完整中英介面（`?lang=`，自動偵測）
 
 ## 架構
@@ -22,15 +22,17 @@
 ```text
 瀏覽器（原生 ES modules，零 framework、零 build）
    │
-Cloudflare Worker（路由、驗證、安全標頭、靜態資產）
+Cloudflare Worker（路由、驗證、安全標頭、Workers Cache、靜態資產）
    │
 Durable Object「Conversation」（一場討論一個）
-   ├─ 內建 SQLite：statements / votes / participants
-   └─ 數學管線（src/math/*）：變動時重算並快取
+   ├─ 內建 SQLite：statements / votes / participants / 審議綜整快照
+   ├─ 數學管線（src/math/*）：變動時重算並快取
+   └─ AI 佇列消費者：Workers AI（@cf/google/gemma-4-26b-a4b-it）透過 Cloudflare Queues 非同步綜整
 ```
 
-沒有 KV、D1、R2、Queues 或外部服務——Durable Object SQLite 是唯一的資料庫。零 runtime 依賴。Cloudflare 免費方案即可運作（每天 10 萬請求、5GB 儲存）。「這真的是 serverless 嗎」的完整討論：[docs/is-this-serverless.md](docs/is-this-serverless.md)。
+單場討論的自架部署完全運行在 Cloudflare Workers 免費額度內：每日 10 萬次請求、1 萬顆 Workers AI 神經元、1 萬次 Queues 操作與 5GB 儲存。零外部付費依賴。AI 審議綜整在資料成功生成後採用 24 小時滾動新鮮度週期（未變更資料永久快取，每日至多背景刷新 1 次；若失敗或遇配額上限則退避至隔日 00:00 UTC 重置），並透過 Workers Cache API 明確白名單進行公開邊緣快取。
 
+**免費神經元預算公式**：Workers AI `@cf/google/gemma-4-26b-a4b-it` 計費為 `輸入 token × 9091 / 1e6 + 輸出 token × 27273 / 1e6`。Prompt 上限明確受控：主題發現 Prompt 依全體陳述在 ~160k 字元預算內衍生單句配額（注意字元數不完全等同 tokenizer token）、歸類每批次上限 50 句（800 句規模最多 16 批次）、最終綜整 Prompt 上限 24 句張力陳述加上共識與各群代表性陳述。硬性 completion token 上限為主題發現 1,200、歸類 16 × 1536 = 24,576、最終綜整 4,096（基準生成共 29,872 completion tokens，若 16 批次全部重試則為 54,448 tokens）。整體設計目標確保單場活躍討論在 24 小時滾動窗口內消耗低於 10,000 顆免費神經元，不宣稱未經實測的固定數值。完整架構分析與討論：[docs/is-this-serverless.md](docs/is-this-serverless.md)。
 ## 快速開始
 
 ```bash
@@ -56,7 +58,7 @@ npx --yes github:mashbean/pocket-polis install-skill
 
 ## 演算法忠實度
 
-演算法依 Polis 公開文獻（[compdemocracy.org/algorithms](https://compdemocracy.org/algorithms/)、Small et al. 2021）clean-room 重新實作，未使用官方 AGPL 程式碼。已用官方開放資料（CC BY 4.0）驗證（[docs/validation-opendata.md](docs/validation-opendata.md)）：vTaiwan UberX、Brexit、Bowling Green 三個資料集群數全對、ARI 0.78–0.86、purity 0.94–0.96；最大資料集（22.5 萬票、607 句、2,010 人）236ms 算完。已知偏差：[docs/algorithm.md](docs/algorithm.md)。
+純數學 Polis 運算管線（PCA、k-means 分群、共識檢定與代表性意見分析）依 Polis 公開文獻（[compdemocracy.org/algorithms](https://compdemocracy.org/algorithms/)、Small et al. 2021）clean-room 重新實作，未使用官方 AGPL 程式碼。原生 AI 審議綜整管線設計概念參考了 [g0v/sensemaker-frontend](https://github.com/g0v/sensemaker-frontend/tree/6303d8)（鎖定 commit `6303d8`）、[bestian/sensemaker-backend](https://github.com/bestian/sensemaker-backend/tree/164a71)（鎖定 commit `164a71`）以及 [bestian/sensemaking-tools](https://github.com/bestian/sensemaking-tools/tree/b5fb897b13c3f25aaffb8fb0d453b4defde1962a)（鎖定 commit `b5fb897b13c3f25aaffb8fb0d453b4defde1962a`），並針對 Serverless 邊緣運行進行了完整重構。已用官方開放資料（CC BY 4.0）驗證（[docs/validation-opendata.md](docs/validation-opendata.md)）：vTaiwan UberX、Brexit、Bowling Green 三個資料集群數全對、ARI 0.78–0.86、purity 0.94–0.96；最大資料集（22.5 萬票、607 句、2,010 人）236ms 算完。已知偏差：[docs/algorithm.md](docs/algorithm.md)。
 
 ## 授權與命名
 

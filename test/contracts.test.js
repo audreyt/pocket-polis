@@ -37,6 +37,21 @@ describe("wrangler.jsonc", () => {
     expect(wrangler.d1_databases).toBeUndefined();
     expect(wrangler.r2_buckets).toBeUndefined();
   });
+
+  it("Workers AI 與 Queues binding 頂層與 production 均存在且相容日為 2026-09-01", () => {
+    expect(wrangler.compatibility_date).toBe("2026-09-01");
+    expect(wrangler.ai).toEqual({ binding: "AI" });
+    expect(wrangler.env.production.ai).toEqual({ binding: "AI" });
+    expect(wrangler.queues.producers[0].binding).toBe("SENSEMAKING_QUEUE");
+    expect(wrangler.queues.consumers[0].queue).toBe("pocket-polis-sensemaking");
+    expect(wrangler.queues.consumers[0].max_retries).toBe(1);
+    expect(wrangler.env.production.queues.producers[0].binding).toBe("SENSEMAKING_QUEUE");
+    expect(wrangler.env.production.queues.consumers[0].queue).toBe("pocket-polis-sensemaking");
+    expect(wrangler.env.production.queues.consumers[0].max_retries).toBe(1);
+    expect(wrangler.env.production.routes).toEqual([
+      { pattern: "polis.tw/*", zone_name: "polis.tw" },
+    ]);
+  });
 });
 
 describe("package.json", () => {
@@ -49,7 +64,8 @@ describe("package.json", () => {
   });
 
   it("check 腳本涵蓋 typecheck、測試與 dry-run 部署", () => {
-    expect(pkg.scripts.deploy).toBe("wrangler deploy");
+    expect(pkg.scripts.deploy).toContain("wrangler deploy");
+    expect(pkg.scripts.deploy).toContain("ensure-queue.mjs");
     expect(pkg.scripts.check).toContain("typecheck");
     expect(pkg.scripts.check).toContain("test");
     expect(pkg.scripts.check).toContain("deploy:dry");
@@ -68,7 +84,7 @@ describe("README", () => {
   });
 
   it("指向線上展示站與 AGENT.md", () => {
-    expect(readme).toContain("https://polis.mashbean.net");
+    expect(readme).toContain("https://polis.tw");
     expect(readme).toContain("AGENT.md");
   });
 

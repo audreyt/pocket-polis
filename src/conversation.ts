@@ -2,7 +2,12 @@ import { DurableObject } from "cloudflare:workers";
 import { computeMath } from "./math/pipeline";
 import { csvEscape, formatCommentsCsv } from "./export";
 import type { MathResult, OpinionPoint, VoteRow, VoteValue } from "./math/types";
-
+import {
+  generateSensemaking,
+  inferSourceLanguage,
+  type SensemakingResponse,
+  type SensemakingSynthesis,
+} from "./sensemaking";
 export interface ConversationSettings {
   title: string;
   description: string;
@@ -61,6 +66,25 @@ const PARTICIPANT_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 const CREATE_PER_HOUR = 10;
 const CREATE_PER_DAY = 50;
 
+
+export interface CheckSynthesisResult {
+  response: SensemakingResponse;
+  needsEnqueue?: {
+    conversationId: string;
+    sourceRevision: number;
+    jobId: string;
+  };
+}
+
+export interface ProcessSensemakingResult {
+  ok: boolean;
+  retryable?: boolean;
+}
+
+function getNextUtcMidnight(now: number): number {
+  const d = new Date(now);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0);
+}
 interface MathCache {
   revision: number;
   publicResult: MathResult;
@@ -461,6 +485,287 @@ export class Conversation extends DurableObject<Env> {
     this.setMeta("mathComputedAt", String(now));
     this.dirty = false;
     return cache;
+  }
+
+  // ---- AI Sensemaking ----
+
+
+  async checkOrStartSynthesis(conversationId: string, now: number): Promise<CheckSynthesisResult> {
+    const settings = this.settings();
+    if (!settings) {
+      return { response: { status: "unavailable", reason: "Conversation not found" } };
+    }
+
+    const math = await this.getResults(null, now);
+    if (!math) {
+      return { response: { status: "unavailable", reason: "Results not available" } };
+    }
+
+    const statements = (await this.publicStatements()).statements;
+    const nParticipants = math.result.nParticipantsClustered;
+    const nGroups = math.result.groups.length;
+    const nStatements = statements.length;
+
+    if (nParticipants < 4 || nGroups < 2 || nStatements < 3) {
+      return {
+        response: {
+          status: "insufficient",
+          reason:
+            inferSourceLanguage(settings.title, settings.description, statements) === "en"
+              ? "Need at least 4 clustered participants across 2+ opinion groups to generate a multi-perspective synthesis."
+              : "需要至少 4 位完成足夠投票的參與者形成 2 個以上意見群體，才能生成多方審議綜整。",
+          counts: {
+            participants: math.result.nParticipantsTotal,
+            clustered: nParticipants,
+            statements: nStatements,
+            votes: math.result.nVotes,
+          },
+        },
+      };
+    }
+
+    const currentRevision = math.result.computedAt;
+    const rawCache = this.getMeta("synthesis_data");
+    let cached: SensemakingSynthesis | null = null;
+    if (rawCache) {
+      try {
+        cached = JSON.parse(rawCache) as SensemakingSynthesis;
+      } catch {
+        cached = null;
+      }
+    }
+
+    // 1. 若已有快取
+    if (cached && cached.status === "ready") {
+      // 資料完全未變更：快取永遠有效且為最新 (isStale = false)
+      if (cached.mathRevision === currentRevision) {
+        return { response: { ...cached, isStale: false } };
+      }
+
+      // 資料有變動：未滿 24 小時前，繼續回傳舊快取並標記 stale，不觸發重新生成
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+      if (now - cached.generatedAt < ONE_DAY_MS) {
+        return { response: { ...cached, isStale: true } };
+      }
+
+      // 已滿 24 小時：可進行一次每日刷新
+    }
+
+    // 2. 檢查失敗退避（若先前失敗，鎖定至隔日 UTC 00:00，避免浪費免費神經元）
+    const rawFailure = this.getMeta("synthesis_failure");
+    if (rawFailure) {
+      try {
+        const failure = JSON.parse(rawFailure) as { failedAt: number; retryAfter: number; reason: string };
+        if (now < failure.retryAfter) {
+          if (cached) {
+            return { response: { ...cached, isStale: true } };
+          }
+          return {
+            response: {
+              status: "unavailable",
+              reason: failure.reason || "AI synthesis is backing off until next UTC reset.",
+              retryAfter: failure.retryAfter,
+            },
+          };
+        }
+      } catch {
+        this.setMeta("synthesis_failure", "");
+      }
+    }
+
+    // 3. 檢查進行中任務（Pending 狀態持久化於 SQLite 防止重啟雪崩）
+    const rawPending = this.getMeta("synthesis_pending");
+    if (rawPending) {
+      try {
+        const pending = JSON.parse(rawPending) as { jobId: string; sourceRevision: number; startedAt: number };
+        const PENDING_TIMEOUT_MS = 15 * 60 * 1000;
+        if (now - pending.startedAt < PENDING_TIMEOUT_MS) {
+          if (cached) {
+            return { response: { ...cached, isStale: true, refreshPending: true } };
+          }
+          return {
+            response: {
+              status: "pending",
+              jobId: pending.jobId,
+              startedAt: pending.startedAt,
+              retryAfterMs: 3000,
+            },
+          };
+        }
+      } catch {
+        // Corrupted pending entry
+      }
+      this.setMeta("synthesis_pending", "");
+    }
+    // 4. 發起新生成任務
+    const jobId = crypto.randomUUID();
+    this.setMeta(
+      "synthesis_pending",
+      JSON.stringify({ jobId, sourceRevision: currentRevision, startedAt: now }),
+    );
+
+    const needsEnqueue = {
+      conversationId,
+      sourceRevision: currentRevision,
+      jobId,
+    };
+    if (cached) {
+      return {
+        response: { ...cached, isStale: true, refreshPending: true },
+        needsEnqueue,
+      };
+    }
+
+    return {
+      response: {
+        status: "pending",
+        jobId,
+        startedAt: now,
+        retryAfterMs: 3000,
+      },
+      needsEnqueue,
+    };
+  }
+
+  async markSensemakingEnqueueFailed(jobId: string, now: number, reason: string): Promise<void> {
+    const rawPending = this.getMeta("synthesis_pending");
+    if (!rawPending) return;
+    try {
+      const pending = JSON.parse(rawPending) as { jobId: string };
+      if (pending.jobId === jobId) {
+        this.setMeta("synthesis_pending", "");
+        // 短暫佇列傳輸失敗退避 30 秒（非 AI 額度鎖定）
+        this.setMeta(
+          "synthesis_failure",
+          JSON.stringify({
+            failedAt: now,
+            retryAfter: now + 30000,
+            reason: reason || "AI synthesis is temporarily unavailable.",
+          }),
+        );
+      }
+    } catch {
+      this.setMeta("synthesis_pending", "");
+    }
+  }
+
+  async processSensemakingJob(
+    sourceRevision: number,
+    jobId: string,
+    now: number,
+  ): Promise<ProcessSensemakingResult> {
+    const rawPending = this.getMeta("synthesis_pending");
+    if (!rawPending) {
+      return { ok: true };
+    }
+    let pending: { jobId: string; sourceRevision: number; startedAt: number } | null = null;
+    try {
+      pending = JSON.parse(rawPending);
+    } catch {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    // 嚴格驗證 jobId 與 sourceRevision，過期或被覆蓋的任務冪等 no-op
+    if (!pending || pending.jobId !== jobId || pending.sourceRevision !== sourceRevision) {
+      return { ok: true };
+    }
+
+    const settings = this.settings();
+    if (!settings) {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    const math = await this.getResults(null, now);
+    if (!math) {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    const statements = (await this.publicStatements()).statements;
+    if (
+      math.result.nParticipantsClustered < 4 ||
+      math.result.groups.length < 2 ||
+      statements.length < 3
+    ) {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    if (!this.env.AI) {
+      const nextUtc = getNextUtcMidnight(now);
+      this.setMeta("synthesis_pending", "");
+      this.setMeta(
+        "synthesis_failure",
+        JSON.stringify({
+          failedAt: now,
+          retryAfter: nextUtc,
+          reason: "Workers AI binding is not configured.",
+        }),
+      );
+      return { ok: false, retryable: false };
+    }
+
+    const inferredLang = inferSourceLanguage(settings.title, settings.description, statements);
+    try {
+      const currentRev = math.result.computedAt;
+      const response = await generateSensemaking({
+        ai: this.env.AI,
+        lang: inferredLang,
+        title: settings.title,
+        description: settings.description,
+        mathResult: math.result,
+        statements,
+        mathRevision: currentRev,
+        now,
+      });
+
+      if (response.status === "ready") {
+        this.setMeta("synthesis_data", JSON.stringify(response));
+        this.setMeta("synthesis_pending", "");
+        this.setMeta("synthesis_failure", "");
+        return { ok: true };
+      }
+
+      if (response.status === "insufficient") {
+        this.setMeta("synthesis_pending", "");
+        return { ok: true };
+      }
+      console.error("AI synthesis unavailable:", response.status === "unavailable" ? response.reason : response);
+      const nextUtc = getNextUtcMidnight(now);
+      this.setMeta("synthesis_pending", "");
+      const publicReason =
+        inferredLang === "en"
+          ? "AI synthesis is temporarily unavailable."
+          : "AI 審議綜整暫時無法提供。";
+      this.setMeta(
+        "synthesis_failure",
+        JSON.stringify({
+          failedAt: now,
+          retryAfter: nextUtc,
+          reason: publicReason,
+        }),
+      );
+      return { ok: false, retryable: false };
+    } catch (error) {
+      console.error("AI synthesis job error:", error);
+      const nextUtc = getNextUtcMidnight(now);
+      this.setMeta("synthesis_pending", "");
+      const publicReason =
+        inferredLang === "en"
+          ? "AI synthesis is temporarily unavailable."
+          : "AI 審議綜整暫時無法提供。";
+      this.setMeta(
+        "synthesis_failure",
+        JSON.stringify({
+          failedAt: now,
+          retryAfter: nextUtc,
+          reason: publicReason,
+        }),
+      );
+      return { ok: false, retryable: false };
+    }
   }
 
   // ---- admin ----

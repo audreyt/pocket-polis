@@ -6,12 +6,12 @@
 //
 //   node scripts/seed-demo-legislature.mjs [base-url]
 //
-// 預設打 https://polis.mashbean.net。輸出參與/結果/管理連結（管理金鑰只印在
+// 預設打 https://polis.tw。輸出參與/結果/管理連結（管理金鑰只印在
 // 終端，不落地）。同一個 SEED 重跑會產生同樣的投票模式（但會建立新對話）。
 
 const args = process.argv.slice(2).filter((a) => a !== "--lang" && a !== "en");
 const LANG = process.argv.includes("en") && process.argv.includes("--lang") ? "en" : "zh";
-const BASE = args[0] ?? "https://polis.mashbean.net";
+const BASE = args[0] ?? "https://polis.tw";
 const SEED = 20260901;
 
 // ---- 決定性 PRNG ----

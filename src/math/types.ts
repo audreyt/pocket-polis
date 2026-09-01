@@ -36,6 +36,8 @@ export interface GroupResult {
   size: number;
   center: [number, number];
   representative: RepresentativeStatement[];
+  /** 該群在各陳述上的投票統計（納入分群之參與者） */
+  statementStats?: StatementStat[];
 }
 
 export interface ConsensusStatement {

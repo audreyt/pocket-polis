@@ -157,6 +157,11 @@ describe("computeMath 整條管線", () => {
       expect(r.repness).toBeGreaterThan(1);
     }
 
+    // 群內統計：X 群對 s1 應全投同意 (20 票)，對 s5 應全投不同意 (20 票)
+    expect(gx.statementStats).toBeDefined();
+    expect(gx.statementStats?.find((s) => s.sid === 1)?.agrees).toBe(20);
+    expect(gx.statementStats?.find((s) => s.sid === 5)?.disagrees).toBe(20);
+
     // 共識：s9 應該是同意方向的第一名
     expect(publicResult.consensus.agree.length).toBeGreaterThan(0);
     expect(publicResult.consensus.agree[0]!.sid).toBe(9);

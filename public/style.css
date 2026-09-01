@@ -523,6 +523,15 @@ label {
   .map-svg circle.dot {
     animation: none;
   }
+  .highlight-target {
+    animation: none;
+  }
+  .badge.pulse {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.001ms !important;
+  }
 }
 
 .legend {
@@ -612,6 +621,386 @@ label {
   font-size: 1.05rem;
 }
 
+
+/* ---- AI 審議綜整與階層式報告 ---- */
+
+.report-section {
+  margin: 2.2rem 0;
+}
+
+.section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.section-header h2 {
+  margin-bottom: 0.4rem;
+}
+
+.sub-section {
+  margin: 1.8rem 0;
+}
+
+.ai-badge-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.badge.ai-model-badge {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.badge.ai-status-badge.ready {
+  color: var(--accent-2);
+  border-color: color-mix(in srgb, var(--accent-2) 30%, transparent);
+  background: color-mix(in srgb, var(--accent-2) 8%, transparent);
+}
+
+.badge.ai-status-badge.info {
+  color: var(--muted);
+}
+
+.badge.ai-status-badge.warning {
+  color: var(--disagree);
+  border-color: color-mix(in srgb, var(--disagree) 30%, transparent);
+}
+
+.badge.count-badge {
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.ai-overview-card {
+  border-left: 4px solid var(--accent);
+  padding: 1.4rem 1.6rem;
+}
+
+.lead-text {
+  font-size: 1.08rem;
+  font-weight: 500;
+  line-height: 1.65;
+  margin: 0 0 0.5rem;
+}
+
+/* 議題網格 */
+.themes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.9rem;
+  margin: 1rem 0;
+}
+
+.theme-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.2rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.theme-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+.theme-card.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.theme-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.theme-header h3 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.theme-desc {
+  margin: 0.4rem 0 0.8rem;
+  font-size: 0.88rem;
+}
+
+.theme-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.theme-action-row {
+  margin-top: 0.8rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.theme-filter-btn {
+  font-size: 0.82rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.theme-filter-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.theme-filter-btn.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+}
+
+.more-badge {
+  font-size: 0.76rem;
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px dashed var(--border);
+}
+
+/* 引用標籤按鈕 */
+.sid-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.12rem 0.5rem;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  font-family: inherit;
+}
+
+.sid-chip:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.sid-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 目標陳述反白動畫 */
+.highlight-target {
+  animation: pulse-highlight 2.2s ease-out;
+}
+
+@keyframes pulse-highlight {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.stale-banner {
+  border-left-color: var(--disagree);
+  background: color-mix(in srgb, var(--disagree) 8%, var(--surface-2));
+  margin: 0 0 0.8rem 0;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.88rem;
+}
+
+.provenance-line {
+  font-size: 0.8rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.badge.pulse {
+  animation: badge-pulse 1.8s infinite ease-in-out;
+}
+
+/* 跨群共識卡片 */
+.common-ground-card {
+  border-left: 4px solid var(--agree);
+}
+
+.cg-points-list {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.cg-point-item h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.98rem;
+  color: var(--text);
+}
+
+.cg-point-item p {
+  margin: 0 0 0.4rem;
+  font-size: 0.92rem;
+}
+
+.citations-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+
+.citations-row .label {
+  font-size: 0.78rem;
+}
+
+/* 分歧與張力卡片 */
+.tension-card {
+  border-left: 4px solid var(--group-1);
+  margin: 0.9rem 0;
+}
+
+.tension-topic {
+  margin: 0 0 0.5rem;
+  font-size: 1.04rem;
+}
+
+.tension-perspectives {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.7rem;
+  margin: 0.7rem 0;
+}
+
+.perspective-box {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+  font-size: 0.88rem;
+}
+
+.perspective-box strong {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.tension-explanation {
+  font-size: 0.92rem;
+  margin: 0.6rem 0;
+}
+
+.bridging-question-box {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  margin: 0.7rem 0;
+}
+
+.bq-badge {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.bq-content strong {
+  color: var(--accent);
+  font-size: 0.86rem;
+  display: block;
+}
+
+.bq-content span {
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+/* 群體畫像網格 */
+.portraits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.9rem;
+  margin: 1rem 0;
+}
+
+.portrait-card h4 {
+  margin: 0 0 0.4rem;
+  font-size: 1.02rem;
+}
+
+.portrait-summary {
+  font-size: 0.9rem;
+  margin: 0 0 0.7rem;
+}
+
+.portrait-stances {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.stance-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.84rem;
+}
+
+.stance-desc {
+  color: var(--muted);
+}
+
+/* 打印樣式 */
+@media print {
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+  .actions,
+  .site-nav .lang-switch,
+  button {
+    display: none !important;
+  }
+  .card {
+    box-shadow: none;
+    border: 1px solid #cccccc;
+    page-break-inside: avoid;
+  }
+}
 /* ---- 分享連結 / 程式碼 ---- */
 
 .link-row {
@@ -791,4 +1180,31 @@ footer .inner.narrow {
 footer .credit {
   margin-top: 0.6rem;
   font-weight: 600;
+}
+
+/* 張力數據即時對比樣式 */
+.tension-stat-compare {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.tension-stat-compare .group-stat-pill {
+  font-weight: 600;
+}
+
+/* 行動裝置觸控目標尺寸（44px 最小觸控範圍） */
+@media (pointer: coarse) {
+  .sid-chip,
+  .theme-filter-btn,
+  .button,
+  .site-nav .lang,
+  .lang-switch a {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
 }

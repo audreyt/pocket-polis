@@ -1,8 +1,8 @@
 # Demo 案例：【模擬】國防軍購特別預算公投（2026-09-01）
 
-線上展示：<https://polis.mashbean.net/r/3ovoxq5c6o>（結果頁）· <https://polis.mashbean.net/c/3ovoxq5c6o>（參與頁）
+線上展示：<https://polis.tw/r/likyl6aasu>（結果頁）· <https://polis.tw/c/likyl6aasu>（參與頁）
 
-English demo（同一模型、英文種子意見，2026-09-01 播種，60:53 分群）：<https://polis.mashbean.net/r/qx7fc5m3ql?lang=en>。跑法：`node scripts/seed-demo-legislature.mjs <base-url> --lang en`。
+English demo（同一模型、英文種子意見，2026-09-01 播種，60:53 分群）：<https://polis.tw/r/w3b89q4y8j?lang=en>。跑法：`node scripts/seed-demo-legislature.mjs <base-url> --lang en`。
 
 ## 這是什麼（以及不是什麼）
 
@@ -48,7 +48,7 @@ English demo（同一模型、英文種子意見，2026-09-01 播種，60:53 分
 ## 重跑或改造
 
 ```bash
-node scripts/seed-demo-legislature.mjs                      # 打 polis.mashbean.net（建新對話）
+node scripts/seed-demo-legislature.mjs                      # 打 polis.tw（建新對話）
 node scripts/seed-demo-legislature.mjs http://localhost:8788  # 打本機 wrangler dev
 ```
 

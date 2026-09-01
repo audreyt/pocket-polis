@@ -71,6 +71,12 @@ export function computeMath(input: PipelineInput): PipelineOutput {
     group: assignments[i]!,
   }));
 
+  const pidToGroup = new Map<string, number>();
+  matrix.pids.forEach((pid, i) => {
+    pidToGroup.set(pid, assignments[i]!);
+  });
+  const groupStats = tallyGroupStatements(votes, statementIds, pidToGroup, grouping.k);
+
   const reps = representativeStatements(matrix, assignments, grouping.k);
   const groups: GroupResult[] = [];
   for (let g = 0; g < grouping.k; g++) {
@@ -83,6 +89,7 @@ export function computeMath(input: PipelineInput): PipelineOutput {
       size: members.length,
       center: [round(cx), round(cy)],
       representative: reps[g] ?? [],
+      statementStats: groupStats[g] ?? [],
     });
   }
 
@@ -119,6 +126,29 @@ function tallyStatements(votes: VoteRow[], statementIds: number[]): StatementSta
     else s.passes++;
   }
   return [...stats.values()];
+}
+
+function tallyGroupStatements(
+  votes: VoteRow[],
+  statementIds: number[],
+  pidToGroup: Map<string, number>,
+  k: number,
+): StatementStat[][] {
+  const stats: StatementStat[][] = Array.from({ length: k }, () =>
+    statementIds.map((sid) => ({ sid, agrees: 0, disagrees: 0, passes: 0, seen: 0 })),
+  );
+  const maps = stats.map((list) => new Map<number, StatementStat>(list.map((s) => [s.sid, s])));
+  for (const v of votes) {
+    const g = pidToGroup.get(v.pid);
+    if (g === undefined || g < 0 || g >= k) continue;
+    const target = maps[g]!.get(v.sid);
+    if (!target) continue;
+    target.seen++;
+    if (v.value === 1) target.agrees++;
+    else if (v.value === -1) target.disagrees++;
+    else target.passes++;
+  }
+  return stats;
 }
 
 function round(x: number): number {

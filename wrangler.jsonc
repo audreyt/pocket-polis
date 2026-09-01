@@ -4,7 +4,7 @@
   // 資料延續（比照 call-in 保留 live-deck-kit 的做法），請勿更名。
   "name": "polis-serverless",
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-11",
+  "compatibility_date": "2026-09-01",
   "workers_dev": true,
   "preview_urls": true,
   "assets": {
@@ -17,6 +17,25 @@
       {
         "name": "CONVERSATION",
         "class_name": "Conversation"
+      }
+    ]
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "SENSEMAKING_QUEUE",
+        "queue": "pocket-polis-sensemaking"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "pocket-polis-sensemaking",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 1
       }
     ]
   },
@@ -45,10 +64,29 @@
           }
         ]
       },
+      "ai": {
+        "binding": "AI"
+      },
+      "queues": {
+        "producers": [
+          {
+            "binding": "SENSEMAKING_QUEUE",
+            "queue": "pocket-polis-sensemaking"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "pocket-polis-sensemaking",
+            "max_batch_size": 1,
+            "max_batch_timeout": 5,
+            "max_retries": 1
+          }
+        ]
+      },
       "routes": [
         {
-          "pattern": "polis.mashbean.net",
-          "custom_domain": true
+          "pattern": "polis.tw/*",
+          "zone_name": "polis.tw"
         }
       ]
     }
