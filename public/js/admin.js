@@ -111,6 +111,8 @@ async function refresh() {
     all.append(row);
   }
 
+  document.getElementById("export-comments").href =
+    `/api/conversations/${convId}/export/comments.csv?token=${token}`;
   document.getElementById("export-statements").href =
     `/api/conversations/${convId}/export/statements.csv?token=${token}`;
   document.getElementById("export-votes").href =

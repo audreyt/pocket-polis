@@ -53,7 +53,7 @@ curl -X POST $BASE/api/conversations -H 'Content-Type: application/json' -d '{
 | `POST /api/conversations/:id/votes` `{pid,sid,value:1\|-1\|0}` | cast a vote (1 = agree) |
 | `POST /api/conversations/:id/statements` `{pid,text}` | submit a statement (≤280 chars) |
 | `GET /api/conversations/:id/results` | clustering, representative statements, consensus (JSON) |
-| `GET /api/conversations/:id/export/{votes,statements}.csv` | anonymized export (`?token=`, or public when openData) |
+| `GET /api/conversations/:id/export/{comments,votes,statements}.csv` | anonymized export (`?token=`, or public when openData). `comments.csv` has the same header as a pol.is report export, so tools like [Sensemaker](https://make.vtaiwan.tw/) read it as-is |
 | `GET/POST /api/conversations/:id/admin*` | moderation & settings (`Authorization: Bearer <adminToken>`) |
 
 - `pid` is a participant-generated UUID (the web UI stores it in localStorage). When driving multiple simulated participants, use one fixed UUID per participant.

@@ -244,6 +244,13 @@ async function handleConversationApi(
     return json(results, 200, { "Cache-Control": "no-store" });
   }
 
+  // pol.is 相容的 comments.csv（Sensemaker 等工具可直接讀取）
+  if (subPath === "/export/comments.csv" && request.method === "GET") {
+    const csv = await stub.exportCommentsCsv(bearerToken(request, url));
+    if (csv === null) return jsonError("unauthorized (data export is not public for this conversation)", 403);
+    return csvResponse(csv, "comments.csv");
+  }
+
   if (subPath === "/export/statements.csv" && request.method === "GET") {
     const csv = await stub.exportStatementsCsv(bearerToken(request, url));
     if (csv === null) return jsonError("unauthorized (data export is not public for this conversation)", 403);

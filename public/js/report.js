@@ -392,6 +392,11 @@ async function refresh() {
       document.getElementById("alt-link").href = info.altUrl;
       show(document.getElementById("alt-banner"), true);
     }
+    // 主持人開啟「公開資料下載」時才出現 comments.csv 入口（伺服器端另有把關）
+    if (info.openData) {
+      document.getElementById("export-comments").href = `/api/conversations/${convId}/export/comments.csv`;
+      show(document.getElementById("export-section"), true);
+    }
     infoLoaded = true;
   }
 

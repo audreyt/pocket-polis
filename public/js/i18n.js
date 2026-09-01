@@ -94,6 +94,13 @@ const STRINGS = {
     "Last updated {time} ({n} participants with {m}+ votes are on the map)",
   ],
   "r.methodNote": ["分群方法說明", "How the clustering works"],
+  "r.exportTitle": ["資料下載", "Data export"],
+  "r.exportComments": ["下載 comments.csv", "Download comments.csv"],
+  "r.exportNote": [
+    "與 pol.is 報告頁匯出的 comments.csv 同格式，可直接上傳到 AI 意見綜整工具；作者欄以流水號匿名化。",
+    "Same format as the comments.csv from a pol.is report, ready for AI sensemaking tools; authors are anonymized as sequence numbers.",
+  ],
+  "r.exportSensemaker": ["試試 vTaiwan Sensemaker →", "Try vTaiwan Sensemaker →"],
 
   // 管理頁
   "a.title": ["管理頁", "Host controls"],
@@ -141,11 +148,12 @@ const STRINGS = {
   "a.countsSeed": ["同意 {a} · 不同意 {d} · 略過 {p}{seed}", "Agree {a} · Disagree {d} · Pass {p}{seed}"],
   "a.seedMark": [" · 種子", " · seed"],
   "a.exportTitle": ["資料下載", "Data export"],
+  "a.exportComments": ["下載 comments.csv（pol.is 格式）", "Download comments.csv (pol.is format)"],
   "a.exportStatements": ["下載意見清單 CSV", "Download statements.csv"],
   "a.exportVotes": ["下載投票紀錄 CSV（匿名化）", "Download votes.csv (anonymized)"],
   "a.exportNote": [
-    "投票紀錄以 p1、p2⋯ 匿名化，可交給任何分析工具（例如 red-dwarf）交叉驗證。",
-    "Votes are anonymized as p1, p2, …; the CSV works with external analysis tools (e.g. red-dwarf).",
+    "comments.csv 與 pol.is 報告頁匯出的同格式，可直接上傳 vTaiwan Sensemaker 做 AI 意見綜整（開啟「公開資料下載」後，結果頁也會出現下載鈕）；投票紀錄以 p1、p2⋯ 匿名化，可交給任何分析工具（例如 red-dwarf）交叉驗證。",
+    "comments.csv matches the pol.is report export and can go straight into vTaiwan Sensemaker for AI-assisted synthesis (with public data export on, the report page shows the download too); votes are anonymized as p1, p2, … and work with external analysis tools (e.g. red-dwarf).",
   ],
   "a.footerNote": [
     "管理金鑰只存在此分頁的 sessionStorage，關閉分頁即清除。",

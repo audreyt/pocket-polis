@@ -14,7 +14,7 @@
 - **參與**：匿名投票（同意／不同意／略過）、提出新意見，票少的意見優先曝光
 - **審核**：核准或退回意見、開關討論
 - **即時計算**：平均插補 → PCA（power iteration、sparsity-aware projection）→ k-means（silhouette 選 2–5 群，含 k-smoothing 讓群數在重新整理間保持穩定）→ 各群代表性意見（repness＋比例檢定）→ 跨群共識——全部在 Worker 內完成
-- **結果頁**：含群體輪廓的即時意見地圖、「你在這裡」、各群代表意見、共識清單、匿名化 CSV 匯出
+- **結果頁**：含群體輪廓的即時意見地圖、「你在這裡」、各群代表意見、共識清單、匿名化 CSV 匯出（含 pol.is 相容的 `comments.csv`，可直接上傳 [Sensemaker](https://make.vtaiwan.tw/) 做 AI 綜整）
 - **雙語**：完整中英介面（`?lang=`，自動偵測）
 
 ## 架構

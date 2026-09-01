@@ -71,6 +71,12 @@ describe("README", () => {
     expect(readme).toContain("https://polis.mashbean.net");
     expect(readme).toContain("AGENT.md");
   });
+
+  it("宣告 pol.is 相容的 comments.csv 匯出（issue #1）", () => {
+    expect(readme).toContain("comments.csv");
+    expect(read("AGENT.md")).toContain("export/{comments,votes,statements}.csv");
+    expect(read("public/report.html")).toContain('id="export-comments"');
+  });
 });
 
 describe("品牌與公開版要求", () => {
