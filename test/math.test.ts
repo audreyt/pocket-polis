@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MIN_GROUP_STATS_SIZE, redactSmallGroupStats } from "../src/math/pipeline";
 import { buildMatrix, inclusionThreshold } from "../src/math/matrix";
 import { chooseGroups, K_SMOOTHING_BUFFER, kmeans, selectK, silhouette } from "../src/math/kmeans";
 import { computeMath } from "../src/math/pipeline";
@@ -199,5 +200,32 @@ describe("rng", () => {
   it("hashSeed 對相同字串穩定", () => {
     expect(hashSeed("abc")).toBe(hashSeed("abc"));
     expect(hashSeed("abc")).not.toBe(hashSeed("abd"));
+  });
+});
+
+describe("redactSmallGroupStats（k-匿名）", () => {
+  it(`size < ${MIN_GROUP_STATS_SIZE} 的群移除 statementStats，其餘群與其他欄位原樣保留`, () => {
+    const stat = { sid: 1, agrees: 1, disagrees: 0, passes: 0, seen: 1 };
+    const result: any = {
+      computedAt: 1,
+      k: 2,
+      nParticipantsClustered: 4,
+      nParticipantsTotal: 4,
+      nVotes: 4,
+      points: [],
+      statementStats: [stat],
+      consensus: { agree: [], disagree: [] },
+      groups: [
+        { id: 0, label: "A", size: MIN_GROUP_STATS_SIZE, center: [0, 0], representative: [], statementStats: [stat] },
+        { id: 1, label: "B", size: 1, center: [0, 0], representative: [], statementStats: [stat] },
+      ],
+    };
+    const redacted = redactSmallGroupStats(result);
+    expect(redacted.groups[0]!.statementStats).toEqual([stat]);
+    expect("statementStats" in redacted.groups[1]!).toBe(false);
+    expect(redacted.groups[1]!.size).toBe(1);
+    expect(redacted.statementStats).toEqual([stat]);
+    // 原物件不被修改
+    expect(result.groups[1].statementStats).toEqual([stat]);
   });
 });

@@ -66,6 +66,32 @@ describe("computeEvidenceBuckets 確定性證據過濾（Jigsaw minCommonGroundP
     expect(buckets.eligibleTensionSids.has(1)).toBe(true);
     expect(buckets.eligibleTensionSids.has(5)).toBe(true);
   });
+
+  it("低於 MIN_GROUP_STATS_SIZE 的群體不提供逐陳述統計：不成為張力證據、不阻擋共識，且提示與驗證視為 seen = 0", () => {
+    const { mathResult } = createMockMathResult();
+    const statementIds = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    // 加入 1 人群：對 s9 不同意、對 s2 100% 同意（若納入，s9 共識會被擋、s2 會因差距成為張力）
+    const tiny = {
+      id: 2,
+      label: "C",
+      size: 1,
+      center: [0, 0] as [number, number],
+      representative: [],
+      statementStats: statementIds.map((sid) => ({
+        sid,
+        agrees: sid === 2 ? 1 : 0,
+        disagrees: sid === 9 ? 1 : 0,
+        passes: sid === 2 || sid === 9 ? 0 : 1,
+        seen: 1,
+      })),
+    };
+    const withTiny: MathResult = { ...mathResult, k: 3, groups: [...mathResult.groups, tiny] };
+    const buckets = computeEvidenceBuckets(withTiny, statementIds);
+    expect(buckets.groupStatsMap.get(2)?.size ?? 0).toBe(0);
+    expect(buckets.consensusAgreeSids.has(9)).toBe(true);
+    const base = computeEvidenceBuckets(mathResult, statementIds);
+    expect([...buckets.eligibleTensionSids].sort()).toEqual([...base.eligibleTensionSids].sort());
+  });
 });
 
 describe("generateSensemaking 門檻與防護", () => {

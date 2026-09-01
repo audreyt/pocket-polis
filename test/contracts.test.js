@@ -2,7 +2,8 @@
 // 把 wrangler.jsonc、package.json 與 README 的關鍵承諾寫成斷言，防止漂移。
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { accessibleTextColor, statementRowAttrs } from "../public/js/common.js";
+import { accessibleTextColor, el, statementRowAttrs } from "../public/js/common.js";
+import { resolveQueueName } from "../scripts/ensure-queue.mjs";
 import { STRINGS } from "../public/js/i18n.js";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -54,7 +55,10 @@ describe("wrangler.jsonc", () => {
     expect(wrangler.queues.consumers[0].queue).toBe("pocket-polis-sensemaking");
     expect(wrangler.queues.consumers[0].max_retries).toBe(1);
     expect(wrangler.env.production.queues.producers[0].binding).toBe("SENSEMAKING_QUEUE");
-    expect(wrangler.env.production.queues.consumers[0].queue).toBe("pocket-polis-sensemaking");
+    // 每個環境各自的 Queue：一條 Queue 只能有一個作用中 consumer，共用會被後部署者搶走
+    expect(wrangler.env.production.queues.producers[0].queue).toBe("pocket-polis-sensemaking-production");
+    expect(wrangler.env.production.queues.consumers[0].queue).toBe("pocket-polis-sensemaking-production");
+    expect(wrangler.env.production.queues.consumers[0].queue).not.toBe(wrangler.queues.consumers[0].queue);
     expect(wrangler.env.production.queues.consumers[0].max_retries).toBe(1);
     expect(wrangler.env.production.routes).toEqual([
       { pattern: "polis.tw/*", zone_name: "polis.tw" },
@@ -74,6 +78,7 @@ describe("package.json", () => {
   it("check 腳本涵蓋 typecheck、測試與 dry-run 部署", () => {
     expect(pkg.scripts.deploy).toContain("wrangler deploy");
     expect(pkg.scripts.deploy).toContain("ensure-queue.mjs");
+    expect(pkg.scripts["deploy:production"]).toContain("ensure-queue.mjs production");
     expect(pkg.scripts.check).toContain("typecheck");
     expect(pkg.scripts.check).toContain("test");
     expect(pkg.scripts.check).toContain("deploy:dry");
@@ -345,6 +350,47 @@ describe("結果頁無障礙、樣式與 CSP 合約", () => {
     const fn = js.slice(js.indexOf("function setModelBadge"), js.indexOf("function clearSynthesisDom"));
     expect(fn).toMatch(/if \(!synthesis \|\| !synthesis\.overview\)[\s\S]*?textContent = ""[\s\S]*?show\(modelBadge, false\)/);
     expect(fn).toMatch(/r\.aiModelDeterministic[\s\S]*?r\.aiModelTag[\s\S]*?show\(modelBadge, true\)/);
+  });
+});
+
+describe("el() 選填子節點", () => {
+  it("null / undefined / false 子節點被略過，不會渲染成字面 \"null\"", () => {
+    const makeNode = (tag) => ({
+      tag,
+      children: [],
+      textContent: "",
+      className: "",
+      attrs: {},
+      setAttribute(k, v) {
+        this.attrs[k] = v;
+      },
+      append(child) {
+        this.children.push(typeof child === "string" ? child : child && child.tag ? child : String(child));
+      },
+    });
+    globalThis.document = { createElement: makeNode };
+    try {
+      const node = el("div", { class: "x" }, [
+        null,
+        el("span", { text: "a" }),
+        undefined,
+        false,
+        "b",
+      ]);
+      expect(node.children.map((c) => (typeof c === "string" ? c : c.tag))).toEqual(["span", "b"]);
+      expect(node.children).not.toContain("null");
+      expect(node.children).not.toContain("undefined");
+    } finally {
+      delete globalThis.document;
+    }
+  });
+});
+
+describe("ensure-queue 環境隔離", () => {
+  it("resolveQueueName 依環境從 wrangler.jsonc 取各自的 consumer Queue，找不到即拋錯", () => {
+    expect(resolveQueueName("")).toBe("pocket-polis-sensemaking");
+    expect(resolveQueueName("production")).toBe("pocket-polis-sensemaking-production");
+    expect(() => resolveQueueName("staging")).toThrow(/staging/);
   });
 });
 

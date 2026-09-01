@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { computeMath } from "./math/pipeline";
+import { computeMath, redactSmallGroupStats } from "./math/pipeline";
 import { csvEscape, formatCommentsCsv } from "./export";
 import type { MathResult, OpinionPoint, VoteRow, VoteValue } from "./math/types";
 import {
@@ -444,10 +444,21 @@ export class Conversation extends DurableObject<Env> {
 
   // ---- results ----
 
+  /** 公開 /results：小群逐陳述統計已遮蔽（k-匿名），見 redactSmallGroupStats。 */
   async getResults(
     pid: string | null,
     now: number,
   ): Promise<{ result: MathResult; you: OpinionPoint | null } | null> {
+    const full = this.computeResults(pid, now);
+    if (!full) return null;
+    return { result: redactSmallGroupStats(full.result), you: full.you };
+  }
+
+  /** DO 內部完整結果（含所有群的 statementStats），只供綜整證據驗證，絕不直接回傳給客戶端。 */
+  private computeResults(
+    pid: string | null,
+    now: number,
+  ): { result: MathResult; you: OpinionPoint | null } | null {
     const id = this.getMeta("id");
     if (!id) return null;
     const cache = this.readMathCache();
@@ -782,7 +793,7 @@ export class Conversation extends DurableObject<Env> {
       return { ok: true };
     }
 
-    const math = await this.getResults(null, now);
+    const math = this.computeResults(null, now);
     if (!math) {
       this.setMeta("synthesis_pending", "");
       return { ok: true };
@@ -800,7 +811,20 @@ export class Conversation extends DurableObject<Env> {
 
     const inferredLang = inferSourceLanguage(settings.title, settings.description, statements);
     const currentRev = math.result.computedAt;
+    // 長時間 await 期間 updateSettings / 新 enqueue 可能清除或覆蓋 synthesis_pending：
+    // 每一條持久化路徑前都重讀比對 jobId 與 sourceRevision，被取代的任務一律丟棄、不寫任何狀態。
+    const stillCurrentJob = (): boolean => {
+      const raw = this.getMeta("synthesis_pending");
+      if (!raw) return false;
+      try {
+        const cur = JSON.parse(raw) as { jobId?: unknown; sourceRevision?: unknown };
+        return cur.jobId === jobId && cur.sourceRevision === sourceRevision;
+      } catch {
+        return false;
+      }
+    };
     const finishDeterministic = (): ProcessSensemakingResult => {
+      if (!stillCurrentJob()) return { ok: true };
       this.persistDeterministicReady(
         inferredLang,
         settings.title,
@@ -847,6 +871,11 @@ export class Conversation extends DurableObject<Env> {
         mathRevision: currentRev,
         now,
       });
+
+      if (!stillCurrentJob()) {
+        // 任務已被取代（設定變更或新 revision）：捨棄結果，交由目前的 pending 任務處理
+        return { ok: true };
+      }
 
       if (response.status === "ready") {
         this.setMeta("synthesis_data", JSON.stringify(response));
@@ -967,9 +996,13 @@ export class Conversation extends DurableObject<Env> {
       altUrl: typeof patch.altUrl === "string" ? sanitizeAltUrl(patch.altUrl) : current.altUrl,
     };
     this.setMeta("settings", JSON.stringify(next));
-    this.setMeta("synthesis_failure", "");
-    this.setMeta("synthesis_data", "");
-    this.setMeta("synthesis_pending", "");
+    // 只有影響綜整內容的欄位（標題、說明）實際變更才失效綜整；
+    // openData / status / allowSubmissions 等營運開關不得清掉有效報告（24h claim 仍在，清掉只會換成統計摘要）
+    if (next.title !== current.title || next.description !== current.description) {
+      this.setMeta("synthesis_failure", "");
+      this.setMeta("synthesis_data", "");
+      this.setMeta("synthesis_pending", "");
+    }
     return { ok: true, settings: next };
   }
   // ---- data export ----

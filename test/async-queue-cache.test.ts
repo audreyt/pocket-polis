@@ -320,21 +320,21 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
       JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
     );
     (ctx.storage.sql as any).exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "id", "conv123456");
-    vi.spyOn(conv as any, "getResults").mockResolvedValue({
-      result: {
-        computedAt: 42,
-        k: 2,
-        nParticipantsClustered: 10,
-        nParticipantsTotal: 10,
-        nVotes: 50,
-        statementStats: [],
-        consensus: { agree: [], disagree: [] },
-        groups: [
-          { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
-          { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
-        ],
-      },
-    });
+    const mathResult = {
+      computedAt: 42,
+      k: 2,
+      nParticipantsClustered: 10,
+      nParticipantsTotal: 10,
+      nVotes: 50,
+      statementStats: [],
+      consensus: { agree: [], disagree: [] },
+      groups: [
+        { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
+        { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
+      ],
+    };
+    vi.spyOn(conv as any, "getResults").mockResolvedValue({ result: mathResult, you: null });
+    vi.spyOn(conv as any, "computeResults").mockReturnValue({ result: mathResult, you: null });
     vi.spyOn(conv, "publicStatements").mockResolvedValue({
       statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
     });
@@ -837,21 +837,21 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
       JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
     );
     ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "id", "conv123456");
-    vi.spyOn(conv as any, "getResults").mockResolvedValue({
-      result: {
-        computedAt: 42,
-        k: 2,
-        nParticipantsClustered: 10,
-        nParticipantsTotal: 10,
-        nVotes: 50,
-        statementStats: [],
-        consensus: { agree: [], disagree: [] },
-        groups: [
-          { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
-          { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
-        ],
-      },
-    });
+    const mathResult = {
+      computedAt: 42,
+      k: 2,
+      nParticipantsClustered: 10,
+      nParticipantsTotal: 10,
+      nVotes: 50,
+      statementStats: [],
+      consensus: { agree: [], disagree: [] },
+      groups: [
+        { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
+        { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
+      ],
+    };
+    vi.spyOn(conv as any, "getResults").mockResolvedValue({ result: mathResult, you: null });
+    vi.spyOn(conv as any, "computeResults").mockReturnValue({ result: mathResult, you: null });
     vi.spyOn(conv, "publicStatements").mockResolvedValue({
       statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
     });
@@ -996,6 +996,88 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     expect(aiRun.mock.calls.length).toBe(calls);
   });
 
+  it("updateSettings with only operational fields keeps a valid ready synthesis; title/description change invalidates it", async () => {
+    const { ctx } = convCtx();
+    const conv = new Conversation(ctx, {} as any);
+    const token = "admin-token";
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "adminTokenHash", hash);
+    ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+      "settings",
+      JSON.stringify({ title: "標題", description: "說明", autoApprove: true, allowSubmissions: true, openData: false, status: "open", altUrl: "" }),
+    );
+    const ready = JSON.stringify({ status: "ready", mathRevision: 42, overview: { summary: "x" } });
+    const readMeta = (key: string) =>
+      (ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", key).toArray()[0] as { value: string } | undefined)?.value ?? "";
+    ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "synthesis_data", ready);
+
+    // 營運開關：openData / status / allowSubmissions 不得清掉報告
+    expect((await conv.updateSettings(token, { openData: true })).ok).toBe(true);
+    expect(readMeta("synthesis_data")).toBe(ready);
+    expect((await conv.updateSettings(token, { status: "closed", allowSubmissions: false })).ok).toBe(true);
+    expect(readMeta("synthesis_data")).toBe(ready);
+    // 同值標題（no-op）也不清
+    expect((await conv.updateSettings(token, { title: "標題" })).ok).toBe(true);
+    expect(readMeta("synthesis_data")).toBe(ready);
+    // 說明變更才失效
+    expect((await conv.updateSettings(token, { description: "新說明" })).ok).toBe(true);
+    expect(readMeta("synthesis_data")).toBe("");
+  });
+
+  it("a job superseded while the model call is in flight is discarded and does not clobber the newer pending state", async () => {
+    const { ctx } = convCtx();
+    const coord = makeCoordinator();
+    const readMeta = (key: string) =>
+      (ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", key).toArray()[0] as { value: string } | undefined)?.value ?? "";
+    const replacePending = () =>
+      ctx.storage.sql.exec(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+        "synthesis_pending",
+        JSON.stringify({ jobId: "job-newer", sourceRevision: 42, startedAt: 5000 }),
+      );
+    // ready 路徑：AI 呼叫期間 pending 被替換
+    {
+      const inner = topicAi();
+      const aiRun = vi.fn(async (model: string, payload: any) => {
+        replacePending();
+        return inner(model, payload);
+      });
+      const conv = new Conversation(ctx, {
+        AI: { run: aiRun },
+        NEURON_COORDINATOR: { getByName: () => coord },
+      } as any);
+      seedSynthesisReady(conv, ctx, 1000);
+      await conv.processSensemakingJob(42, "job-1", 1000);
+      expect(aiRun.mock.calls.length).toBeGreaterThan(0);
+      expect(readMeta("synthesis_data")).toBe("");
+      expect(JSON.parse(readMeta("synthesis_pending")).jobId).toBe("job-newer");
+    }
+    // deterministic fallback 路徑：AI 拋錯前 pending 已被替換
+    {
+      const { ctx: ctx2 } = convCtx();
+      const readMeta2 = (key: string) =>
+        (ctx2.storage.sql.exec("SELECT value FROM meta WHERE key = ?", key).toArray()[0] as { value: string } | undefined)?.value ?? "";
+      const aiRun = vi.fn(async () => {
+        ctx2.storage.sql.exec(
+          "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+          "synthesis_pending",
+          JSON.stringify({ jobId: "job-newer", sourceRevision: 42, startedAt: 5000 }),
+        );
+        throw new Error("boom");
+      });
+      const conv = new Conversation(ctx2, {
+        AI: { run: aiRun },
+        NEURON_COORDINATOR: { getByName: () => makeCoordinator() },
+      } as any);
+      seedSynthesisReady(conv, ctx2, 1000);
+      await conv.processSensemakingJob(42, "job-1", 1000);
+      expect(readMeta2("synthesis_data")).toBe("");
+      expect(JSON.parse(readMeta2("synthesis_pending")).jobId).toBe("job-newer");
+    }
+  });
+
   it("persisted claim survives a simulated process restart inside 24h", async () => {
     const { ctx } = convCtx();
     const aiRun = topicAi();
@@ -1097,21 +1179,21 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
       "settings",
       JSON.stringify({ title: "標題", description: "說明", autoApprove: true }),
     );
-    vi.spyOn(conv as any, "getResults").mockResolvedValue({
-      result: {
-        computedAt: 42,
-        k: 2,
-        nParticipantsClustered: 10,
-        nParticipantsTotal: 10,
-        nVotes: 50,
-        statementStats: [],
-        consensus: { agree: [], disagree: [] },
-        groups: [
-          { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
-          { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
-        ],
-      },
-    });
+    const mathResult = {
+      computedAt: 42,
+      k: 2,
+      nParticipantsClustered: 10,
+      nParticipantsTotal: 10,
+      nVotes: 50,
+      statementStats: [],
+      consensus: { agree: [], disagree: [] },
+      groups: [
+        { id: 0, label: "A", size: 5, representative: [], statementStats: [] },
+        { id: 1, label: "B", size: 5, representative: [], statementStats: [] },
+      ],
+    };
+    vi.spyOn(conv as any, "getResults").mockResolvedValue({ result: mathResult, you: null });
+    vi.spyOn(conv as any, "computeResults").mockReturnValue({ result: mathResult, you: null });
     vi.spyOn(conv, "publicStatements").mockResolvedValue({
       statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
     });

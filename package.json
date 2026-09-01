@@ -16,7 +16,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "node scripts/ensure-queue.mjs && wrangler deploy",
-    "deploy:production": "node scripts/ensure-queue.mjs && wrangler deploy --env production",
+    "deploy:production": "node scripts/ensure-queue.mjs production && wrangler deploy --env production",
     "deploy:dry": "wrangler deploy --dry-run",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types",
