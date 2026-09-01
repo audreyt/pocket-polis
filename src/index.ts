@@ -78,7 +78,48 @@ async function servePage(request: Request, env: Env, url: URL): Promise<Response
   if (!assetPath) return new Response("not found", { status: 404 });
   const assetUrl = new URL(assetPath, url.origin);
   const response = await env.ASSETS.fetch(new Request(assetUrl, request));
-  return withSecurityHeaders(response);
+  return rewritePageMeta(withSecurityHeaders(response), env, url);
+}
+
+const setMetaContent = (value: string) => ({
+  element(el: Element) {
+    el.setAttribute("content", value);
+  },
+});
+
+/**
+ * 分享預覽：og:image / og:url 跟著部署網域走（自架站不會指到官方站）；
+ * 討論頁（/c/、/r/）另外把該場討論的標題與說明寫進 <title> 與 og 標籤，
+ * 讓分享出去的連結有正確的預覽文字。
+ */
+async function rewritePageMeta(response: Response, env: Env, url: URL): Promise<Response> {
+  const rewriter = new HTMLRewriter()
+    .on('meta[property="og:image"]', setMetaContent(`${url.origin}/og-image.png`))
+    .on('meta[property="og:url"]', setMetaContent(url.origin + url.pathname));
+
+  const conversationPage = url.pathname.match(/^\/(c|r)\/([a-z0-9]{10})$/);
+  if (conversationPage) {
+    try {
+      const stub = env.CONVERSATION.getByName(`conv:${conversationPage[2]}`);
+      const info = await stub.publicInfo();
+      if (info) {
+        const title = `${info.title} — Pocket Polis`;
+        const description = (info.description || "").trim().slice(0, 160) || title;
+        rewriter
+          .on("title", {
+            element(el) {
+              el.setInnerContent(title);
+            },
+          })
+          .on('meta[property="og:title"]', setMetaContent(title))
+          .on('meta[property="og:description"]', setMetaContent(description))
+          .on('meta[name="description"]', setMetaContent(description));
+      }
+    } catch {
+      // 討論不存在或暫時讀不到：保留頁面的靜態預設
+    }
+  }
+  return rewriter.transform(response);
 }
 
 function withSecurityHeaders(response: Response): Response {
