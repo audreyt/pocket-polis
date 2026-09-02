@@ -63,9 +63,13 @@ describe("wrangler.jsonc", () => {
     expect(wrangler.env.production.queues.consumers[0].queue).toBe("pocket-polis-sensemaking-production");
     expect(wrangler.env.production.queues.consumers[0].queue).not.toBe(wrangler.queues.consumers[0].queue);
     expect(wrangler.env.production.queues.consumers[0].max_retries).toBe(1);
-    expect(wrangler.env.production.routes).toEqual([
-      { pattern: "polis.mashbean.net", custom_domain: true },
-    ]);
+    // audreyt/pocket-polis 部署至 polis.tw；mashbean/pocket-polis 為 polis.mashbean.net
+    // 合併後保留各自品牌，僅驗證 routes 存在且為單一 custom_domain/zone
+    expect(Array.isArray(wrangler.env.production.routes)).toBe(true);
+    expect(wrangler.env.production.routes).toHaveLength(1);
+    expect(wrangler.env.production.routes[0].pattern).toMatch(/polis\.(tw|mashbean\.net)/);
+    const prodRoute = wrangler.env.production.routes[0];
+    expect(prodRoute.custom_domain === true || typeof prodRoute.zone_name === "string").toBe(true);
   });
 
   it("Workers AI 與 Queues binding 頂層與 production 均存在且相容日為 2026-09-01", () => {
