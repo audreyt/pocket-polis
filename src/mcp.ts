@@ -1,5 +1,6 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { invalidateConversationPublicCache } from "./cache";
 import type { Conversation, ConversationRegistryEntry, PublicInfo } from "./conversation";
 import type { VoteValue } from "./math/types";
 import { createConversationFromInput, getConversation } from "./service";
@@ -27,6 +28,7 @@ const listSchema = z.object({
 
 export interface PocketPolisMcpAccess {
   globalAdmin: boolean;
+  origin?: string;
 }
 
 export function createPocketPolisMcpServer(env: Env, access: PocketPolisMcpAccess): McpServer {
@@ -236,6 +238,9 @@ export function createPocketPolisMcpServer(env: Env, access: PocketPolisMcpAcces
       const stub = await getConversation(env, conversationId);
       if (!stub) return toolError("conversation not found");
       const result = await stub.moderateStatement(adminToken ?? "", statementId, action, access.globalAdmin);
+      if (result.ok && access.origin) {
+        await invalidateConversationPublicCache(access.origin, conversationId);
+      }
       return result.ok ? toolResult(result) : toolError(result.error);
     },
   );
@@ -256,6 +261,9 @@ export function createPocketPolisMcpServer(env: Env, access: PocketPolisMcpAcces
       const stub = await getConversation(env, conversationId);
       if (!stub) return toolError("conversation not found");
       const result = await stub.addSeedStatement(adminToken ?? "", text, Date.now(), access.globalAdmin);
+      if (result.ok && access.origin) {
+        await invalidateConversationPublicCache(access.origin, conversationId);
+      }
       return result.ok ? toolResult(result) : toolError(result.error);
     },
   );

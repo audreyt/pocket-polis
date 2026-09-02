@@ -14,7 +14,7 @@ Live site: **<https://polis.mashbean.net/en>** · Demo: [a simulated defense-bud
 - **Participate**: anonymous voting (agree / disagree / pass), submit new statements, low-vote statements get shown first
 - **Moderate**: approve or reject statements, open/close the conversation
 - **Math, live**: mean imputation → PCA (power iteration, sparsity-aware projection) → k-means (silhouette picks 2–5 groups, with k-smoothing so groups stay stable between refreshes) → representative statements per group (repness + proportion tests) → group-aware consensus — computed inside the Worker
-- **Report**: live opinion map with group outlines, "you are here", per-group representative statements, consensus list, anonymized CSV export (including a pol.is-compatible `comments.csv` that drops straight into [Sensemaker](https://make.vtaiwan.tw/))
+- **Report & AI Sensemaking**: live opinion map with group outlines, "you are here", thematic issue directory, cross-group common ground & deliberation tension insights with citations (via native Workers AI `@cf/google/gemma-4-26b-a4b-it`), per-group representative statements, consensus list, anonymized CSV export (including a pol.is-compatible `comments.csv` that drops straight into [Sensemaker](https://make.vtaiwan.tw/))
 - **Bilingual**: full zh-Hant / English UI (`?lang=`, auto-detected)
 
 ## Architecture
@@ -22,15 +22,19 @@ Live site: **<https://polis.mashbean.net/en>** · Demo: [a simulated defense-bud
 ```text
 Browser (vanilla ES modules — no framework, no build step)
    │
-Cloudflare Worker (routing, validation, security headers, static assets)
+Cloudflare Worker (routing, validation, security headers, Workers Cache, static assets)
    │
 Durable Object "Conversation" (one per conversation)
-   ├─ built-in SQLite: statements / votes / participants
-   └─ math pipeline (src/math/*): recomputed on change, cached
+   ├─ built-in SQLite: statements / votes / participants / synthesis cache
+   ├─ math pipeline (src/math/*): recomputed on change, cached
+   └─ AI queue consumer: Workers AI (@cf/google/gemma-4-26b-a4b-it) via Cloudflare Queues
 ```
 
-No KV, D1, R2, queues, or external data services — Durable Object SQLite is the only database. MCP packages are bundled into the Worker, with no additional service to operate. Works on the Cloudflare free plan (100k requests/day, 5 GB storage). What "serverless" means here, and the alternatives considered: [docs/is-this-serverless.md](docs/is-this-serverless.md) (zh).
+Self-hosted single-conversation deployments run entirely within Cloudflare Workers Free allocations: 100k requests/day, 10k Workers AI neurons/day, 10k Queues operations/day, and 5 GB storage. Durable Object SQLite is the only database; the MCP packages are bundled into the Worker, with no additional service or paid external dependency to operate. Deliberation synthesis is budgeted for 1 complete AI generation per active conversation per rolling 24h window (with unchanged data cached indefinitely; non-retryable model/quota failures persist a deterministic fallback report for the current revision and allow a new AI attempt once data changes after the rolling 24h attempt window). Public responses are cached at the edge via an explicit Workers Cache API allowlist.
 
+What "serverless" means here, and the alternatives considered: [docs/is-this-serverless.md](docs/is-this-serverless.md) (zh).
+
+**Free-tier neuron contract (hard ceiling):** `@cf/google/gemma-4-26b-a4b-it` is billed `neurons = input_tokens × 9091 / 1e6 + output_tokens × 27273 / 1e6` ([Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/)). Input tokens are a conservative **upper bound** `utf8_bytes(system)+utf8_bytes(user)+256` chat-template overhead — not JS `string.length`, and not an exact tokenizer count. Output uses each call's enforced `max_tokens` (discovery 2048, categorize batch 1536, synthesis 4096). Before every `ai.run` the worker obtains **both** a local per-generation ledger reservation **and** an atomic reservation on a deployment-wide UTC-day coordinator Durable Object, capped at **9,000** neurons for this Pocket Polis app (1,000 headroom below the 10,000 free neurons/day). Other Workers in the same Cloudflare account are outside this coordinator. A persisted per-conversation rolling-24h claim is written in the conversation Durable Object before the first model call, so Queue retries and settings edits cannot double-spend. Single-conversation self-hosted deployments stay within one conversation's 9,000/24h plus the app-wide UTC-day cap. A synthesis-phase hold is taken first so optional categorize retries cannot starve the final phase. Prompts are UTF-8 byte-capped (discovery 240,000, categorize batch 32,000, synthesis 48,000); every statement ID is kept. Consensus and tension evidence are ranked then capped at 24 each. If a generation cannot enter or complete inside the ledger, the worker returns a cacheable deterministic statistical summary (`generationMode: "deterministic"`, `model: "deterministic"`) and never labels it Gemma. **Queues are durability and latency isolation, not neuron savings.** One `<64KB` message with `max_retries: 1` is at most **4 Queue operations** (1 write + 2 reads + 1 delete; success path 3), metered separately from neurons.
 ## Quick start
 
 ```bash
@@ -68,7 +72,7 @@ npx --yes github:mashbean/pocket-polis install-skill
 
 ## Algorithm fidelity
 
-The algorithms are a clean-room reimplementation from the published Polis literature ([compdemocracy.org/algorithms](https://compdemocracy.org/algorithms/), Small et al. 2021); no code from the AGPL upstream is used. Validated against the official Polis open datasets (CC BY 4.0) — see [docs/validation-opendata.md](docs/validation-opendata.md): on vTaiwan UberX, Brexit, and Bowling Green the group count matches the official runs exactly, with Adjusted Rand Index 0.78–0.86 and purity 0.94–0.96; the largest dataset (225k votes, 607 statements, 2,010 participants) computes in 236 ms. Known deviations: [docs/algorithm.md](docs/algorithm.md).
+The mathematical Polis pipeline (PCA, k-means clustering, consensus detection, and representativeness) is a clean-room reimplementation from the published Polis literature ([compdemocracy.org/algorithms](https://compdemocracy.org/algorithms/), Small et al. 2021); no code from the AGPL upstream is used. The native sensemaking pipeline draws design concepts from [g0v/sensemaker-frontend](https://github.com/g0v/sensemaker-frontend/tree/6303d8), [bestian/sensemaker-backend](https://github.com/bestian/sensemaker-backend/tree/164a71), and [bestian/sensemaking-tools](https://github.com/bestian/sensemaking-tools/tree/b5fb897b13c3f25aaffb8fb0d453b4defde1962a), re-architected for serverless execution. Validated against the official Polis open datasets (CC BY 4.0) — see [docs/validation-opendata.md](docs/validation-opendata.md): on vTaiwan UberX, Brexit, and Bowling Green the group count matches the official runs exactly, with Adjusted Rand Index 0.78–0.86 and purity 0.94–0.96; the largest dataset (225k votes, 607 statements, 2,010 participants) computes in 236 ms. Known deviations: [docs/algorithm.md](docs/algorithm.md).
 
 ## License and naming
 

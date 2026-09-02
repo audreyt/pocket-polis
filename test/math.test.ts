@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MIN_GROUP_STATS_SIZE, privacySafeMathResult } from "../src/math/pipeline";
 import { buildMatrix, inclusionThreshold } from "../src/math/matrix";
 import { chooseGroups, K_SMOOTHING_BUFFER, kmeans, selectK, silhouette } from "../src/math/kmeans";
 import { computeMath } from "../src/math/pipeline";
@@ -157,6 +158,11 @@ describe("computeMath 整條管線", () => {
       expect(r.repness).toBeGreaterThan(1);
     }
 
+    // 群內統計：X 群對 s1 應全投同意 (20 票)，對 s5 應全投不同意 (20 票)
+    expect(gx.statementStats).toBeDefined();
+    expect(gx.statementStats?.find((s) => s.sid === 1)?.agrees).toBe(20);
+    expect(gx.statementStats?.find((s) => s.sid === 5)?.disagrees).toBe(20);
+
     // 共識：s9 應該是同意方向的第一名
     expect(publicResult.consensus.agree.length).toBeGreaterThan(0);
     expect(publicResult.consensus.agree[0]!.sid).toBe(9);
@@ -194,5 +200,77 @@ describe("rng", () => {
   it("hashSeed 對相同字串穩定", () => {
     expect(hashSeed("abc")).toBe(hashSeed("abc"));
     expect(hashSeed("abc")).not.toBe(hashSeed("abd"));
+  });
+});
+
+describe("privacySafeMathResult（k-匿名）", () => {
+  it(`size < ${MIN_GROUP_STATS_SIZE} 的群移除 statementStats，其餘群與其他欄位原樣保留`, () => {
+    // 可報告群的格 seen = k（可公佈）；全體 seen = 2k，餘數 k（= 小群那格 + 未分群者，可推導但 >= k）
+    const stat = { sid: 1, agrees: MIN_GROUP_STATS_SIZE, disagrees: 0, passes: 0, seen: MIN_GROUP_STATS_SIZE };
+    const total = { sid: 1, agrees: MIN_GROUP_STATS_SIZE * 2, disagrees: 0, passes: 0, seen: MIN_GROUP_STATS_SIZE * 2 };
+    const result: any = {
+      computedAt: 1,
+      k: 2,
+      nParticipantsClustered: 4,
+      nParticipantsTotal: 4,
+      nVotes: 4,
+      points: [],
+      statementStats: [total],
+      consensus: { agree: [], disagree: [] },
+      groups: [
+        { id: 0, label: "A", size: MIN_GROUP_STATS_SIZE, center: [0, 0], representative: [], statementStats: [stat] },
+        { id: 1, label: "B", size: 1, center: [0, 0], representative: [], statementStats: [stat] },
+      ],
+    };
+    result.groups[1].representative = [{ sid: 1, direction: "agree", prob: 0.67, probTest: 0.5, repness: 2, repnessTest: 0.5, metric: 1, nSuccess: 1, nSeen: 1 }];
+    const redacted = privacySafeMathResult(result);
+    expect(redacted.groups[0]!.statementStats).toEqual([stat]);
+    expect(redacted.groups[0]!.statsRedacted).toBeUndefined();
+    expect("statementStats" in redacted.groups[1]!).toBe(false);
+    // 代表性陳述也一併遮蔽（單人群的代表性方向就是那個人的投票），並標記給前端
+    expect(redacted.groups[1]!.representative).toEqual([]);
+    expect(redacted.groups[1]!.statsRedacted).toBe(true);
+    expect(redacted.groups[1]!.size).toBe(1);
+    expect(redacted.statementStats).toEqual([total]);
+    // 原物件不被修改
+    expect(result.groups[1].statementStats).toEqual([stat]);
+  });
+
+  it("逐格下限與互補差分：任一群格 seen < k 或餘數落在 1..k-1 即整列抑制；代表性陳述 nSeen < k 移除", () => {
+    const k = MIN_GROUP_STATS_SIZE;
+    const cell = (sid: number, agrees: number, disagrees: number, passes = 0) => ({ sid, agrees, disagrees, passes, seen: agrees + disagrees + passes });
+    const rep = (sid: number, nSeen: number) => ({ sid, direction: "agree" as const, prob: 0.9, probTest: 1, repness: 2, repnessTest: 1, metric: 1, nSuccess: nSeen, nSeen });
+    const result: any = {
+      computedAt: 1, k: 2, nParticipantsClustered: 12, nParticipantsTotal: 13, nVotes: 0, points: [],
+      consensus: { agree: [], disagree: [] },
+      // s1：兩群格皆 >= k，餘數 0 → 公佈
+      // s2：群 B 的格 seen = 2 (< k) → 整列抑制（A 的格也不公佈，否則 total − A 就是 B 那兩個人）
+      // s3：兩群格皆 >= k，但餘數 = 1（一位未分群者）→ 整列抑制
+      // s4：兩群格皆 >= k，餘數 = k → 公佈
+      statementStats: [cell(1, 8, 4), cell(2, 6, 2), cell(3, 8, 5), cell(4, 9, 6)],
+      groups: [
+        { id: 0, label: "A", size: 6, center: [0, 0], representative: [rep(1, 6), rep(2, 2)],
+          statementStats: [cell(1, 4, 2), cell(2, 5, 1), cell(3, 4, 2), cell(4, 4, 2)] },
+        { id: 1, label: "B", size: 6, center: [0, 0], representative: [rep(3, 3)],
+          statementStats: [cell(1, 4, 2), cell(2, 1, 1), cell(3, 4, 2), cell(4, 3, 3)] },
+      ],
+    };
+    const safe = privacySafeMathResult(result, k);
+    const sidsOf = (g: any) => g.statementStats.map((s: any) => s.sid).sort();
+    expect(sidsOf(safe.groups[0])).toEqual([1, 4]);
+    expect(sidsOf(safe.groups[1])).toEqual([1, 4]);
+    expect(safe.groups[0]!.statsRedacted).toBeUndefined();
+    // 全體統計不動（本來就是公開的）
+    expect(safe.statementStats).toEqual(result.statementStats);
+    // 代表性陳述：nSeen < k 或非 publishableSids（逐格抑制／互補差分）者一併移除
+    expect(safe.groups[0]!.representative.map((r) => r.sid)).toEqual([1]);
+    expect(safe.groups[1]!.representative.map((r) => r.sid)).toEqual([]);
+    // 不變量：每個公佈格 >= k；每個可推導餘數為 0 或 >= k
+    for (const s of safe.statementStats) {
+      const cells = safe.groups.map((g) => g.statementStats?.find((c) => c.sid === s.sid)).filter(Boolean) as any[];
+      for (const c of cells) expect(c.seen).toBeGreaterThanOrEqual(k);
+      const residual = s.seen - cells.reduce((a, c) => a + c.seen, 0);
+      expect(residual === 0 || residual >= k || cells.length === 0).toBe(true);
+    }
   });
 });

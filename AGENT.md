@@ -2,8 +2,7 @@
 
 You are a coding agent. The user wants "their own Polis". This document lets you do everything for them while the user does exactly **one** thing: log into their own Cloudflare account in the browser.
 
-polis-serverless runs a complete Polis-style wikisurvey round (statement submission → agree/disagree/pass voting → PCA + k-means opinion clustering → representative statements & cross-group consensus) on a single Cloudflare Worker with Durable Object SQLite. It works on the free plan (100k requests/day, 5 GB storage). There are no servers or databases to maintain.
-
+polis-serverless runs a complete Polis-style wikisurvey round (statement submission → agree/disagree/pass voting → PCA + k-means opinion clustering → representative statements & cross-group consensus) on a single Cloudflare Worker with Durable Object SQLite and Cloudflare Queues for asynchronous Workers AI sensemaking (@cf/google/gemma-4-26b-a4b-it). It operates entirely within the Cloudflare free tier (100k requests/day, 10k AI neurons/day, 10k queue operations/day, 5 GB storage). Queues isolate durability/latency; they do not save neurons. Each synthesis generation synchronously reserves worst-case Gemma-4 neurons (UTF-8 byte input upper bound + enforced max_tokens) on a 9,000-neuron ledger. There are no servers or external paid databases to maintain.
 （中文使用者：人類讀的說明在 [README.md](README.md)；本檔案是給 agent 的，你的 agent 讀英文即可。）
 
 ## Deployment (the user only logs in)
@@ -53,6 +52,7 @@ curl -X POST $BASE/api/conversations -H 'Content-Type: application/json' -d '{
 | `POST /api/conversations/:id/votes` `{pid,sid,value:1\|-1\|0}` | cast a vote (1 = agree) |
 | `POST /api/conversations/:id/statements` `{pid,text}` | submit a statement (≤280 chars) |
 | `GET /api/conversations/:id/results` | clustering, representative statements, consensus (JSON) |
+| `GET /api/conversations/:id/synthesis` | async AI deliberation synthesis, themes, common ground, tensions (JSON) |
 | `GET /api/conversations/:id/export/{comments,votes,statements}.csv` | anonymized export (`?token=`, or public when openData). `comments.csv` has the same header as a pol.is report export, so tools like [Sensemaker](https://make.vtaiwan.tw/) read it as-is |
 | `GET/POST /api/conversations/:id/admin*` | moderation & settings (`Authorization: Bearer <adminToken>`) |
 

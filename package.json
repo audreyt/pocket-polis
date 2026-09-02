@@ -16,8 +16,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "mcp:backfill": "node scripts/backfill-mcp-registry.mjs",
-    "deploy": "wrangler deploy",
-    "deploy:production": "wrangler deploy --env production",
+    "deploy": "node scripts/ensure-queue.mjs && wrangler deploy",
+    "deploy:production": "node scripts/ensure-queue.mjs production && wrangler deploy --env production",
     "deploy:dry": "wrangler deploy --dry-run",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types",

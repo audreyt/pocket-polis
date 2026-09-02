@@ -1,8 +1,21 @@
 import { DurableObject } from "cloudflare:workers";
-import { computeMath } from "./math/pipeline";
+import { computeMath, privacySafeMathResult } from "./math/pipeline";
 import { csvEscape, formatCommentsCsv } from "./export";
 import type { MathResult, OpinionPoint, VoteRow, VoteValue } from "./math/types";
-
+import {
+  AI_ATTEMPT_WINDOW_MS,
+  SYNTHESIS_AI_CLAIM_KEY,
+} from "./ai-budget";
+import { NEURON_COORDINATOR_INSTANCE } from "./neuron-coordinator";
+import {
+  dropUnreportableGroups,
+  generateDeterministicSensemaking,
+  generateSensemaking,
+  inferSourceLanguage,
+  isSynthesisPrivacyCurrent,
+  type SensemakingResponse,
+  type SensemakingSynthesis,
+} from "./sensemaking";
 export interface ConversationSettings {
   title: string;
   description: string;
@@ -74,7 +87,50 @@ const CREATE_PER_DAY = 50;
 const REGISTRY_OBJECT_NAME = "conversation-registry";
 const REGISTRY_VERSION = "1";
 
+
+export interface CheckSynthesisResult {
+  response: SensemakingResponse;
+  needsEnqueue?: {
+    conversationId: string;
+    sourceRevision: number;
+    jobId: string;
+  };
+}
+
+export interface ProcessSensemakingResult {
+  ok: boolean;
+  retryable?: boolean;
+}
+
+/** claim 記錄持有它的 jobId：同一任務的重複投遞（Queue at-least-once）才能被辨識為 no-op */
+function parseAiClaim(raw: string | null): { claimedAt: number; jobId: string | null } | "absent" | "malformed" {
+  if (!raw) return "absent";
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return "malformed";
+    const rec = parsed as Record<string, unknown>;
+    const claimedAt = rec.claimedAt;
+    if (typeof claimedAt !== "number" || !Number.isFinite(claimedAt) || claimedAt <= 0) {
+      return "malformed";
+    }
+    return { claimedAt, jobId: typeof rec.jobId === "string" ? rec.jobId : null };
+  } catch {
+    return "malformed";
+  }
+}
+
+function aiClaimBlocksAttempt(raw: string | null, now: number): boolean {
+  const claim = parseAiClaim(raw);
+  if (claim === "malformed") return true;
+  if (claim === "absent") return false;
+  return now - claim.claimedAt < AI_ATTEMPT_WINDOW_MS;
+}
+/** 已為此 revision 送過 Queue 訊息（送件失敗時清除）。防止逾時任務被同一 revision 重複送件。 */
+const SYNTHESIS_ENQUEUED_REVISION_KEY = "synthesis_enqueued_revision";
+const MATH_CACHE_SCHEMA_VERSION = 2;
+
 interface MathCache {
+  schemaVersion: number;
   revision: number;
   publicResult: MathResult;
   pidPoints: Record<string, OpinionPoint>;
@@ -446,10 +502,24 @@ export class Conversation extends DurableObject<Env> {
 
   // ---- results ----
 
+  /**
+   * 公開 /results 與所有綜整輸入：一律為隱私安全版（k-匿名：群下限、逐格下限、互補差分），
+   * 見 privacySafeMathResult。完整版只留在 mathCache。
+   */
   async getResults(
     pid: string | null,
     now: number,
   ): Promise<{ result: MathResult; you: OpinionPoint | null } | null> {
+    const full = this.computeResults(pid, now);
+    if (!full) return null;
+    return { result: privacySafeMathResult(full.result), you: full.you };
+  }
+
+  /** DO 內部完整結果，僅供 getResults 套用隱私規則；不得直接回傳客戶端或送入綜整。 */
+  private computeResults(
+    pid: string | null,
+    now: number,
+  ): { result: MathResult; you: OpinionPoint | null } | null {
     const id = this.getMeta("id");
     if (!id) return null;
     const cache = this.readMathCache();
@@ -485,7 +555,23 @@ export class Conversation extends DurableObject<Env> {
 
   private readMathCache(): MathCache | null {
     const raw = this.getMeta("mathCache");
-    return raw ? (JSON.parse(raw) as MathCache) : null;
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as MathCache;
+      if (
+        !parsed ||
+        parsed.schemaVersion !== MATH_CACHE_SCHEMA_VERSION ||
+        typeof parsed.revision !== "number" ||
+        !parsed.publicResult ||
+        !Array.isArray(parsed.publicResult.groups) ||
+        parsed.publicResult.groups.some((g) => !Array.isArray(g.statementStats))
+      ) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
   }
 
   private recompute(id: string, now: number): MathCache {
@@ -508,11 +594,444 @@ export class Conversation extends DurableObject<Env> {
       computedAt: now,
       previousK: previousK && previousK >= 2 ? previousK : null,
     });
-    const cache: MathCache = { revision: this.revision(), publicResult, pidPoints };
+    const cache: MathCache = {
+      schemaVersion: MATH_CACHE_SCHEMA_VERSION,
+      revision: this.revision(),
+      publicResult,
+      pidPoints,
+    };
     this.setMeta("mathCache", JSON.stringify(cache));
     this.setMeta("mathComputedAt", String(now));
     this.dirty = false;
     return cache;
+  }
+
+  // ---- AI Sensemaking ----
+
+  private readReadySynthesis(): SensemakingSynthesis | null {
+    const rawCache = this.getMeta("synthesis_data");
+    if (!rawCache) return null;
+    try {
+      const cached = JSON.parse(rawCache) as SensemakingSynthesis;
+      return cached.status === "ready" ? cached : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private persistDeterministicReady(
+    lang: "zh" | "en",
+    title: string,
+    mathResult: MathResult,
+    statements: { sid: number; text: string }[],
+    mathRevision: number,
+    now: number,
+  ): SensemakingSynthesis {
+    const existing = this.readReadySynthesis();
+    if (existing && existing.mathRevision === mathRevision && isSynthesisPrivacyCurrent(existing)) {
+      this.setMeta("synthesis_pending", "");
+      return existing;
+    }
+    const det = generateDeterministicSensemaking({
+      lang,
+      title,
+      mathResult,
+      statements,
+      mathRevision,
+      now,
+    });
+    this.setMeta("synthesis_data", JSON.stringify(det));
+    this.setMeta("synthesis_pending", "");
+    this.setMeta("synthesis_failure", "");
+    return det;
+  }
+
+  async checkOrStartSynthesis(conversationId: string, now: number): Promise<CheckSynthesisResult> {
+    const settings = this.settings();
+    if (!settings) {
+      return { response: { status: "unavailable", reason: "Conversation not found" } };
+    }
+
+    const math = await this.getResults(null, now);
+    if (!math) {
+      return { response: { status: "unavailable", reason: "Results not available" } };
+    }
+
+    const statements = (await this.publicStatements()).statements;
+    const nParticipants = math.result.nParticipantsClustered;
+    const nGroups = math.result.groups.length;
+    const nStatements = statements.length;
+
+    if (nParticipants < 4 || nGroups < 2 || nStatements < 3) {
+      return {
+        response: {
+          status: "insufficient",
+          reason:
+            inferSourceLanguage(settings.title, settings.description, statements) === "en"
+              ? "Need at least 4 clustered participants across 2+ opinion groups to generate a multi-perspective synthesis."
+              : "需要至少 4 位完成足夠投票的參與者形成 2 個以上意見群體，才能生成多方審議綜整。",
+          counts: {
+            participants: math.result.nParticipantsTotal,
+            clustered: nParticipants,
+            statements: nStatements,
+            votes: math.result.nVotes,
+          },
+        },
+      };
+    }
+
+    const currentRevision = math.result.computedAt;
+    const rawCache = this.getMeta("synthesis_data");
+    let cached: SensemakingSynthesis | null = null;
+    if (rawCache) {
+      try {
+        cached = JSON.parse(rawCache) as SensemakingSynthesis;
+        if (cached && cached.status === "ready") {
+          // 舊版快取（含 overview/commonGround/任意主題描述等小群衍生 prose）若 mathRevision 仍匹配會無限期留存：
+          // 以 isSynthesisPrivacyCurrent 判定，非當前版本直接以當前隱私安全版結果的確定性摘要取代
+          if (!isSynthesisPrivacyCurrent(cached)) {
+            const lang = inferSourceLanguage(settings.title, settings.description, statements);
+            const det = this.persistDeterministicReady(
+              lang,
+              settings.title,
+              math.result,
+              statements,
+              currentRevision,
+              now,
+            );
+            return { response: det };
+          }
+          // 當前版本仍需深層隱私再驗證（keyStance、張力引用、Distinctive 主題）
+          cached = dropUnreportableGroups(cached, math.result);
+        }
+      } catch {
+        cached = null;
+      }
+    }
+
+    // 1. 若已有快取
+    if (cached && cached.status === "ready") {
+      // 資料完全未變更：快取永遠有效且為最新 (isStale = false)
+      if (cached.mathRevision === currentRevision) {
+        return { response: { ...cached, isStale: false } };
+      }
+
+      // 資料有變動：未滿 24 小時前，正常走 stale，但若舊綜整引用已被審核撤銷的陳述，
+      // 不應繼續公開該 prose / citations（且 citation 按鈕已無法定位），直接跳過 stale 並讓後續邏輯重建
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+      if (now - cached.generatedAt < ONE_DAY_MS) {
+        const currentSids = new Set(statements.map((s) => s.sid));
+        const citesRejected = (() => {
+          const allCited: number[] = [];
+          if (Array.isArray(cached.overview?.citedStatementIds)) allCited.push(...cached.overview.citedStatementIds);
+          if (Array.isArray(cached.themes)) {
+            for (const th of cached.themes as { statementIds?: number[]; primaryStatementIds?: number[]; secondaryStatementIds?: number[] }[]) {
+              if (Array.isArray(th.statementIds)) allCited.push(...th.statementIds);
+              if (Array.isArray(th.primaryStatementIds)) allCited.push(...th.primaryStatementIds);
+              if (Array.isArray(th.secondaryStatementIds)) allCited.push(...th.secondaryStatementIds);
+            }
+          }
+          if (Array.isArray(cached.commonGround?.keyPoints)) {
+            for (const kp of cached.commonGround.keyPoints as { citedStatementIds?: number[] }[]) {
+              if (Array.isArray(kp.citedStatementIds)) allCited.push(...kp.citedStatementIds);
+            }
+          }
+          if (Array.isArray(cached.groupPortraits)) {
+            for (const gp of cached.groupPortraits as { citedStatementIds?: number[]; keyStances?: { sid: number }[] }[]) {
+              if (Array.isArray(gp.citedStatementIds)) allCited.push(...gp.citedStatementIds);
+              if (Array.isArray(gp.keyStances)) allCited.push(...gp.keyStances.map((k) => k.sid));
+            }
+          }
+          if (Array.isArray(cached.tensions)) {
+            for (const t of cached.tensions as { citedStatementIds?: number[] }[]) {
+              if (Array.isArray(t.citedStatementIds)) allCited.push(...t.citedStatementIds);
+            }
+          }
+          return allCited.some((sid) => !currentSids.has(sid));
+        })();
+        if (!citesRejected) {
+          return { response: { ...cached, isStale: true } };
+        }
+        // 引用已被撤銷的內容：不回傳 stale，下方將依當前公開結果重建（不再走 24 小時寬限）
+      }
+
+      // 已滿 24 小時：可進行一次每日刷新
+    }
+
+    // 2. 檢查失敗退避（若先前失敗且未過 retryAfter，回傳 unavailable 或舊快取）
+    const rawFailure = this.getMeta("synthesis_failure");
+    if (rawFailure) {
+      try {
+        const failure = JSON.parse(rawFailure) as { failedAt: number; retryAfter: number; reason: string };
+        if (now < failure.retryAfter) {
+          if (cached) {
+            return { response: { ...cached, isStale: true } };
+          }
+          return {
+            response: {
+              status: "unavailable",
+              reason: failure.reason || "AI synthesis is temporarily unavailable.",
+              retryAfter: failure.retryAfter,
+            },
+          };
+        }
+      } catch {
+        this.setMeta("synthesis_failure", "");
+      }
+    }
+
+    // 3. 檢查進行中任務（Pending 狀態持久化於 SQLite 防止重啟雪崩）
+    const rawPending = this.getMeta("synthesis_pending");
+    if (rawPending) {
+      try {
+        const pending = JSON.parse(rawPending) as { jobId: string; sourceRevision: number; startedAt: number };
+        const PENDING_TIMEOUT_MS = 15 * 60 * 1000;
+        if (now - pending.startedAt < PENDING_TIMEOUT_MS) {
+          if (cached) {
+            return { response: { ...cached, isStale: true, refreshPending: true } };
+          }
+          return {
+            response: {
+              status: "pending",
+              jobId: pending.jobId,
+              startedAt: pending.startedAt,
+              retryAfterMs: 3000,
+            },
+          };
+        }
+      } catch {
+        // Corrupted pending entry
+      }
+      this.setMeta("synthesis_pending", "");
+    }
+
+    const claimRaw = this.getMeta(SYNTHESIS_AI_CLAIM_KEY);
+    if (parseAiClaim(claimRaw) === "malformed") {
+      this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now }));
+    }
+    if (aiClaimBlocksAttempt(this.getMeta(SYNTHESIS_AI_CLAIM_KEY), now)) {
+      if (cached && cached.status === "ready") {
+        return { response: { ...cached, isStale: cached.mathRevision !== currentRevision } };
+      }
+      const lang = inferSourceLanguage(settings.title, settings.description, statements);
+      const det = this.persistDeterministicReady(
+        lang,
+        settings.title,
+        math.result,
+        statements,
+        currentRevision,
+        now,
+      );
+      return { response: det };
+    }
+
+    // 4. 發起新生成任務——每個 revision 最多送件一次（文件承諾的 4 次 Queue 操作上限）。
+    // 已送件但 15 分鐘逾時的任務（consumer 延遲、重試耗盡）不再重送：直接以確定性摘要結案。
+    if (this.getMeta(SYNTHESIS_ENQUEUED_REVISION_KEY) === String(currentRevision)) {
+      if (cached && cached.status === "ready" && cached.mathRevision === currentRevision) {
+        return { response: cached };
+      }
+      const lang = inferSourceLanguage(settings.title, settings.description, statements);
+      const det = this.persistDeterministicReady(
+        lang,
+        settings.title,
+        math.result,
+        statements,
+        currentRevision,
+        now,
+      );
+      return { response: det };
+    }
+    const jobId = crypto.randomUUID();
+    this.setMeta(
+      "synthesis_pending",
+      JSON.stringify({ jobId, sourceRevision: currentRevision, startedAt: now }),
+    );
+    this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, String(currentRevision));
+
+    const needsEnqueue = {
+      conversationId,
+      sourceRevision: currentRevision,
+      jobId,
+    };
+    if (cached) {
+      return {
+        response: { ...cached, isStale: true, refreshPending: true },
+        needsEnqueue,
+      };
+    }
+
+    return {
+      response: {
+        status: "pending",
+        jobId,
+        startedAt: now,
+        retryAfterMs: 3000,
+      },
+      needsEnqueue,
+    };
+  }
+
+  async markSensemakingEnqueueFailed(jobId: string, now: number, reason: string): Promise<void> {
+    // 送件失敗沒有消耗成功路徑的 Queue 操作：解除該 revision 的送件標記，退避後允許再送一次
+    const rawPending = this.getMeta("synthesis_pending");
+    if (!rawPending) return;
+    try {
+      const pending = JSON.parse(rawPending) as { jobId: string };
+      if (pending.jobId === jobId) {
+        this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
+        this.setMeta("synthesis_pending", "");
+        // 短暫佇列傳輸失敗退避 30 秒（非 AI 額度鎖定）
+        this.setMeta(
+          "synthesis_failure",
+          JSON.stringify({
+            failedAt: now,
+            retryAfter: now + 30000,
+            reason: reason || "AI synthesis is temporarily unavailable.",
+          }),
+        );
+      }
+    } catch {
+      this.setMeta("synthesis_pending", "");
+    }
+  }
+
+  async processSensemakingJob(
+    sourceRevision: number,
+    jobId: string,
+    now: number,
+  ): Promise<ProcessSensemakingResult> {
+    const rawPending = this.getMeta("synthesis_pending");
+    if (!rawPending) {
+      return { ok: true };
+    }
+    let pending: { jobId: string; sourceRevision: number; startedAt: number } | null = null;
+    try {
+      pending = JSON.parse(rawPending);
+    } catch {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    // 嚴格驗證 jobId 與 sourceRevision，過期或被覆蓋的任務冪等 no-op
+    if (!pending || pending.jobId !== jobId || pending.sourceRevision !== sourceRevision) {
+      return { ok: true };
+    }
+
+    const settings = this.settings();
+    if (!settings) {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    // 綜整證據與公開結果用同一份隱私安全版：模型與確定性摘要看不到任何 < k 的格子
+    const math = await this.getResults(null, now);
+    if (!math) {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    const statements = (await this.publicStatements()).statements;
+    if (
+      math.result.nParticipantsClustered < 4 ||
+      math.result.groups.length < 2 ||
+      statements.length < 3
+    ) {
+      this.setMeta("synthesis_pending", "");
+      return { ok: true };
+    }
+
+    const inferredLang = inferSourceLanguage(settings.title, settings.description, statements);
+    const currentRev = math.result.computedAt;
+    // 長時間 await 期間 updateSettings / 新 enqueue 可能清除或覆蓋 synthesis_pending：
+    // 每一條持久化路徑前都重讀比對 jobId 與 sourceRevision，被取代的任務一律丟棄、不寫任何狀態。
+    const stillCurrentJob = (): boolean => {
+      const raw = this.getMeta("synthesis_pending");
+      if (!raw) return false;
+      try {
+        const cur = JSON.parse(raw) as { jobId?: unknown; sourceRevision?: unknown };
+        return cur.jobId === jobId && cur.sourceRevision === sourceRevision;
+      } catch {
+        return false;
+      }
+    };
+    const finishDeterministic = (): ProcessSensemakingResult => {
+      if (!stillCurrentJob()) return { ok: true };
+      this.persistDeterministicReady(
+        inferredLang,
+        settings.title,
+        math.result,
+        statements,
+        currentRev,
+        now,
+      );
+      return { ok: true };
+    };
+
+    const claimRaw = this.getMeta(SYNTHESIS_AI_CLAIM_KEY);
+    const claim = parseAiClaim(claimRaw);
+    if (claim === "malformed") {
+      this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now, jobId }));
+      return finishDeterministic();
+    }
+    if (aiClaimBlocksAttempt(claimRaw, now)) {
+      // Queue 是 at-least-once：同一 jobId 的重複投遞在第一個呼叫仍 await 模型時進來，
+      // claim 就是它自己寫的。此時什麼都不做（不寫 fallback、不清 pending），讓原呼叫完成。
+      if (claim !== "absent" && claim.jobId === jobId) {
+        return { ok: true };
+      }
+      return finishDeterministic();
+    }
+
+    const coordinatorNs = this.env.NEURON_COORDINATOR;
+    if (!this.env.AI || !coordinatorNs) {
+      return finishDeterministic();
+    }
+
+    this.setMeta(SYNTHESIS_AI_CLAIM_KEY, JSON.stringify({ claimedAt: now, jobId }));
+
+    try {
+      const response = await generateSensemaking({
+        ai: this.env.AI,
+        reserveGlobal: async (neurons: number) => {
+          try {
+            return await coordinatorNs.getByName(NEURON_COORDINATOR_INSTANCE).reserve(neurons);
+          } catch {
+            return false;
+          }
+        },
+        lang: inferredLang,
+
+        title: settings.title,
+        description: settings.description,
+        mathResult: math.result,
+        statements,
+        mathRevision: currentRev,
+        now,
+      });
+
+      if (!stillCurrentJob()) {
+        // 任務已被取代（設定變更或新 revision）：捨棄結果，交由目前的 pending 任務處理
+        return { ok: true };
+      }
+
+      if (response.status === "ready") {
+        this.setMeta("synthesis_data", JSON.stringify(response));
+        this.setMeta("synthesis_pending", "");
+        this.setMeta("synthesis_failure", "");
+        return { ok: true };
+      }
+
+      if (response.status === "insufficient") {
+        this.setMeta("synthesis_pending", "");
+        return { ok: true };
+      }
+      console.error("AI synthesis unavailable:", response.status === "unavailable" ? response.reason : response);
+      return finishDeterministic();
+    } catch (error) {
+      console.error("AI synthesis job error:", error);
+      return finishDeterministic();
+    }
   }
 
   // ---- admin ----
@@ -574,9 +1093,19 @@ export class Conversation extends DurableObject<Env> {
     if (!trusted && !(await this.verifyAdmin(token))) return { ok: false, error: "unauthorized" };
     const rows = this.sql().exec(`SELECT status FROM statements WHERE sid = ?`, sid).toArray();
     if (rows.length === 0) return { ok: false, error: "not found" };
+    const prevStatus = (rows[0] as { status: string }).status;
     const status = action === "approve" ? "approved" : "rejected";
+    if (prevStatus === status) return { ok: true };
     this.sql().exec(`UPDATE statements SET status = ? WHERE sid = ?`, status, sid);
     this.markDirty(Date.now());
+    // 審核狀態變更會立即影響 publicStatements()，但舊綜整的 prose / citations 仍可能引用已撤銷內容：
+    // 不應走 24 小時 stale 快取，直接失效並讓下次 GET 依當前公開結果重建（確定性或重送）。
+    const now = Date.now();
+    void now; // 僅為語意，實際失效不依賴 now
+    this.setMeta("synthesis_data", "");
+    this.setMeta("synthesis_pending", "");
+    this.setMeta("synthesis_failure", "");
+    this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
     return { ok: true };
   }
 
@@ -597,6 +1126,11 @@ export class Conversation extends DurableObject<Env> {
       now,
     );
     this.markDirty(now);
+    // 新增公開陳述同樣影響 synthesis citations / 主題，應立即失效而非走 24 小時 stale
+    this.setMeta("synthesis_data", "");
+    this.setMeta("synthesis_pending", "");
+    this.setMeta("synthesis_failure", "");
+    this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
     return { ok: true };
   }
 
@@ -619,10 +1153,18 @@ export class Conversation extends DurableObject<Env> {
       altUrl: typeof patch.altUrl === "string" ? sanitizeAltUrl(patch.altUrl) : current.altUrl,
     };
     this.setMeta("settings", JSON.stringify(next));
+    // 只有影響綜整內容的欄位（標題、說明）實際變更才失效綜整；
+    // openData / status / allowSubmissions 等營運開關不得清掉有效報告（24h claim 仍在，清掉只會換成統計摘要）
+    if (next.title !== current.title || next.description !== current.description) {
+      this.setMeta("synthesis_failure", "");
+      this.setMeta("synthesis_data", "");
+      this.setMeta("synthesis_pending", "");
+      // 讓新修訂的快照可被重新送件（否則舊的 enqueued_revision 會使下一次 GET 直接以確定性摘要結案）
+      this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
+    }
     await this.syncRegistry(true);
     return { ok: true, settings: next };
   }
-
   // ---- data export ----
 
   private async canExport(token: string | null, trusted = false): Promise<boolean> {
