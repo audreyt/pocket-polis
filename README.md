@@ -30,7 +30,7 @@ Durable Object "Conversation" (one per conversation)
    └─ AI queue consumer: Workers AI (@cf/google/gemma-4-26b-a4b-it) via Cloudflare Queues
 ```
 
-Self-hosted single-conversation deployments run entirely within Cloudflare Workers Free allocations: 100k requests/day, 10k Workers AI neurons/day, 10k Queues operations/day, and 5 GB storage. Zero runtime dependencies and no paid services required. Deliberation synthesis is budgeted for 1 complete AI generation per active conversation per rolling 24h window (with unchanged data cached indefinitely; non-retryable model/quota failures persist a deterministic fallback report for the current revision and allow a new AI attempt once data changes after the rolling 24h attempt window). Public responses are cached at the edge via an explicit Workers Cache API allowlist.
+Self-hosted single-conversation deployments run entirely within Cloudflare Workers Free allocations: 100k requests/day, 10k Workers AI neurons/day, 10k Queues operations/day, and 5 GB storage. Durable Object SQLite is the only database; the MCP packages are bundled into the Worker, with no additional service or paid external dependency to operate. Deliberation synthesis is budgeted for 1 complete AI generation per active conversation per rolling 24h window (with unchanged data cached indefinitely; non-retryable model/quota failures persist a deterministic fallback report for the current revision and allow a new AI attempt once data changes after the rolling 24h attempt window). Public responses are cached at the edge via an explicit Workers Cache API allowlist.
 
 What "serverless" means here, and the alternatives considered: [docs/is-this-serverless.md](docs/is-this-serverless.md) (zh).
 
@@ -45,6 +45,18 @@ npm run deploy     # deploy to your Cloudflare account
 ```
 
 Or click **Deploy to Cloudflare** above. For a custom domain, edit `env.production.routes` in `wrangler.jsonc` and run `npm run deploy:production`.
+
+## MCP
+
+Every deployment exposes a stateless Streamable HTTP MCP endpoint at `https://your-host/mcp`.
+It can list all indexed or currently active conversations, read complete public results,
+create and participate in conversations, export data, and perform host operations. It also
+provides conversation resources and a neutral-analysis prompt.
+
+Public enumeration includes only `openData=true` conversations. Private enumeration and
+global administration require `MCP_ADMIN_TOKEN`; per-conversation admin tokens continue to
+work for that conversation. See [docs/mcp.md](docs/mcp.md) for all tools, authorization,
+legacy registry backfill, and MCP Inspector testing.
 
 ### Let an AI agent deploy it for you
 

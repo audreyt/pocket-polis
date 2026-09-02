@@ -30,7 +30,7 @@ Durable Object「Conversation」（一場討論一個）
    └─ AI 佇列消費者：Workers AI（@cf/google/gemma-4-26b-a4b-it）透過 Cloudflare Queues 非同步綜整
 ```
 
-單場討論的自架部署完全運行在 Cloudflare Workers 免費額度內：每日 10 萬次請求、1 萬顆 Workers AI 神經元、1 萬次 Queues 操作與 5GB 儲存。零外部付費依賴。AI 審議綜整在資料成功生成後採用 24 小時滾動新鮮度週期（未變更資料永久快取，每日至多背景刷新 1 次；若模型失敗或遇配額上限，則持久化當前 revision 之確定性統計綜整，並在資料變更且超過 24 小時嘗試窗口後允許再次嘗試 AI），並透過 Workers Cache API 明確白名單進行公開邊緣快取。
+單場討論的自架部署完全運行在 Cloudflare Workers 免費額度內：每日 10 萬次請求、1 萬顆 Workers AI 神經元、1 萬次 Queues 操作與 5GB 儲存。Durable Object SQLite 是唯一的資料庫；MCP 套件會隨 Worker 一起 bundle，不需另外維護服務或外部付費依賴。AI 審議綜整在資料成功生成後採用 24 小時滾動新鮮度週期（未變更資料永久快取，每日至多背景刷新 1 次；若模型失敗或遇配額上限，則持久化當前 revision 之確定性統計綜整，並在資料變更且超過 24 小時嘗試窗口後允許再次嘗試 AI），並透過 Workers Cache API 明確白名單進行公開邊緣快取。
 
 什麼叫 serverless、考慮過的替代方案：[docs/is-this-serverless.md](docs/is-this-serverless.md)
 
@@ -45,6 +45,16 @@ npm run deploy     # 部署到你的 Cloudflare 帳號
 ```
 
 或按上方 **Deploy to Cloudflare** 按鈕。要綁自訂網域：改 `wrangler.jsonc` 的 `env.production.routes` 後 `npm run deploy:production`。
+
+## MCP
+
+每個部署同時提供 stateless Streamable HTTP MCP endpoint：`https://你的網域/mcp`。
+它可列出所有已索引或目前進行中的討論、讀取完整公開結果、建立與參與討論、
+匯出資料及執行主持人操作；並提供 discussion resources 與中立分析 prompt。
+
+公開列舉預設只顯示 `openData=true` 的討論。非公開列舉與全域管理需設定
+`MCP_ADMIN_TOKEN`，單場管理也可沿用該場 admin token。完整工具、權限、歷史討論
+補登與 Inspector 測試方式見 [docs/mcp.md](docs/mcp.md)。
 
 ### 讓 AI agent 幫你部署
 

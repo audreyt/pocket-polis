@@ -973,12 +973,14 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     const { ctx } = convCtx();
     const coord = makeCoordinator();
     const aiRun = topicAi();
+    const registerConversation = vi.fn().mockResolvedValue(undefined);
     const token = "admin-token";
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
     const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
     const conv = new Conversation(ctx, {
       AI: { run: aiRun },
       NEURON_COORDINATOR: { getByName: () => coord },
+      CONVERSATION: { getByName: () => ({ registerConversation }) },
     } as any);
     seedSynthesisReady(conv, ctx, 1000);
     await conv.processSensemakingJob(42, "job-1", 1000);
@@ -988,6 +990,7 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "adminTokenHash", hash);
     const updated = await conv.updateSettings(token, { title: "新標題" });
     expect(updated.ok).toBe(true);
+    expect(registerConversation).toHaveBeenCalledOnce();
     const claimAfter = ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", SYNTHESIS_AI_CLAIM_KEY).one() as {
       value: string;
     };

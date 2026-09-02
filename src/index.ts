@@ -1,5 +1,9 @@
 import type { Conversation, ConversationSettings } from "./conversation";
 import type { VoteValue } from "./math/types";
+import { createMcpHandler } from "agents/mcp/server";
+import { invalidateConversationPublicCache } from "./cache";
+import { createPocketPolisMcpServer, isGlobalMcpAdmin } from "./mcp";
+import { createConversationFromInput, randomId, sha256Hex } from "./service";
 
 export { Conversation } from "./conversation";
 export { NeuronCoordinator } from "./neuron-coordinator";
@@ -7,7 +11,6 @@ export { NeuronCoordinator } from "./neuron-coordinator";
 const CONVERSATION_ID_PATTERN = /^[a-z0-9]{10}$/;
 const PID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_BODY_BYTES = 16 * 1024;
-const MAX_SEED_STATEMENTS = 50;
 
 export interface SensemakingQueueMessage {
   conversationId: string;
@@ -118,6 +121,14 @@ async function handleRequest(
   url: URL,
 ): Promise<Response> {
   try {
+    if (url.pathname === "/mcp") {
+      const globalAdmin = isGlobalMcpAdmin(request, env);
+      return createMcpHandler(
+        () => createPocketPolisMcpServer(env, { globalAdmin, origin: url.origin }),
+        { route: "/mcp", legacy: "stateless" },
+      )(request, env, ctx);
+    }
+
     if (!url.pathname.startsWith("/api/")) {
       return servePage(request, env, url);
     }
@@ -259,48 +270,10 @@ function withSecurityHeaders(response: Response): Response {
 
 async function createConversation(request: Request, env: Env): Promise<Response> {
   const body = await readJson(request);
-  if (!isRecord(body)) return jsonError("invalid body", 400);
-  const title = typeof body.title === "string" ? body.title.trim().slice(0, 120) : "";
-  if (!title) return jsonError("title is required", 400);
-  const description = typeof body.description === "string" ? body.description.trim().slice(0, 2000) : "";
-  const seedStatements = Array.isArray(body.seedStatements)
-    ? body.seedStatements.filter((s): s is string => typeof s === "string").slice(0, MAX_SEED_STATEMENTS)
-    : [];
-
-  const settings: ConversationSettings = {
-    title,
-    description,
-    autoApprove: body.autoApprove !== false,
-    allowSubmissions: body.allowSubmissions !== false,
-    openData: body.openData === true,
-    status: "open",
-  };
-
-  const now = Date.now();
-  const limiter = env.CONVERSATION.getByName("creation-limiter");
-  const reservation = await limiter.reserveCreation(now);
-  if (!reservation.ok) return jsonError(reservation.error ?? "rate limited", 429);
-
-  const conversationId = randomId();
-  const adminToken = randomToken();
-  const adminTokenHash = await sha256Hex(adminToken);
-  const stub = env.CONVERSATION.getByName(`conv:${conversationId}`);
-  const result = await stub.initConversation(conversationId, settings, seedStatements, adminTokenHash, now);
-  if (!result.ok) return jsonError(result.error, 500);
-
-  return json(
-    {
-      conversationId,
-      adminToken,
-      urls: {
-        participate: `/c/${conversationId}`,
-        report: `/r/${conversationId}`,
-        admin: `/a/${conversationId}#token=${adminToken}`,
-      },
-    },
-    201,
-    { "Cache-Control": "no-store" },
-  );
+  const result = await createConversationFromInput(env, body);
+  return result.ok
+    ? json(result.value, 201, { "Cache-Control": "no-store" })
+    : jsonError(result.error, result.status);
 }
 
 // ---- per-conversation API ----
@@ -468,15 +441,7 @@ async function handleConversationApi(
     if (result.ok) {
       // 審核變更會使舊綜整引用已被撤銷的陈述；除了 DO 內已清除 synthesis 外，
       // 亦需清除 Workers Cache 中殘留的 /synthesis（300s）與關聯公開資料，避免 stale 持續公開
-      try {
-        const cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
-        if (cache) {
-          const origin = url.origin;
-          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/synthesis`, { method: "GET" }));
-          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/results`, { method: "GET" }));
-          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/statements-public`, { method: "GET" }));
-        }
-      } catch {}
+      await invalidateConversationPublicCache(url.origin, conversationId);
     }
     return result.ok
       ? json(result, 200, { "Cache-Control": "no-store" })
@@ -490,15 +455,7 @@ async function handleConversationApi(
     if (!isRecord(body) || typeof body.text !== "string") return jsonError("text required", 400);
     const result = await stub.addSeedStatement(token, body.text, now);
     if (result.ok) {
-      try {
-        const cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
-        if (cache) {
-          const origin = url.origin;
-          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/synthesis`, { method: "GET" }));
-          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/results`, { method: "GET" }));
-          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/statements-public`, { method: "GET" }));
-        }
-      } catch {}
+      await invalidateConversationPublicCache(url.origin, conversationId);
     }
     return result.ok
       ? json(result, 200, { "Cache-Control": "no-store" })
@@ -520,25 +477,6 @@ async function handleConversationApi(
 }
 
 // ---- helpers ----
-
-function randomId(): string {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  let n = 0n;
-  for (const b of bytes) n = (n << 8n) | BigInt(b);
-  return n.toString(36).padStart(10, "0").slice(-10);
-}
-
-function randomToken(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function sha256Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 function requirePid(value: unknown): string | null {
   return typeof value === "string" && PID_PATTERN.test(value) ? value : null;
