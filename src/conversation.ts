@@ -27,6 +27,17 @@ export interface PublicInfo {
   createdAt: number;
 }
 
+export interface ConversationRegistryEntry extends PublicInfo {
+  indexedAt: number;
+  updatedAt: number;
+}
+
+export interface ConversationRegistryPage {
+  conversations: ConversationRegistryEntry[];
+  total: number;
+  nextCursor: string | null;
+}
+
 export interface StatementView {
   sid: number;
   text: string;
@@ -60,6 +71,8 @@ const PARTICIPANT_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
 const CREATE_PER_HOUR = 10;
 const CREATE_PER_DAY = 50;
+const REGISTRY_OBJECT_NAME = "conversation-registry";
+const REGISTRY_VERSION = "1";
 
 interface MathCache {
   revision: number;
@@ -135,6 +148,29 @@ export class Conversation extends DurableObject<Env> {
            SELECT 'participantCount', CAST(COUNT(*) AS TEXT) FROM participants WHERE 1
            ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       ],
+      // v3：全站討論索引。表存在於每個 DO，但只由 conversation-registry singleton 使用。
+      [
+        `CREATE TABLE conversation_registry (
+           id TEXT PRIMARY KEY,
+           title TEXT NOT NULL,
+           description TEXT NOT NULL,
+           status TEXT NOT NULL,
+           allow_submissions INTEGER NOT NULL,
+           auto_approve INTEGER NOT NULL,
+           open_data INTEGER NOT NULL,
+           alt_url TEXT NOT NULL,
+           statement_count INTEGER NOT NULL,
+           participant_count INTEGER NOT NULL,
+           vote_count INTEGER NOT NULL,
+           created_at INTEGER NOT NULL,
+           indexed_at INTEGER NOT NULL,
+           updated_at INTEGER NOT NULL
+         )`,
+        `CREATE INDEX idx_conversation_registry_status_created
+           ON conversation_registry(status, created_at DESC, id)`,
+        `CREATE INDEX idx_conversation_registry_open_data_created
+           ON conversation_registry(open_data, created_at DESC, id)`,
+      ],
     ];
     for (let v = 1; v <= migrations.length; v++) {
       if (applied.has(v)) continue;
@@ -206,11 +242,27 @@ export class Conversation extends DurableObject<Env> {
       );
     }
     this.markDirty(now);
+    await this.syncRegistry(true);
     return { ok: true };
   }
 
   async isConversation(): Promise<boolean> {
-    return this.getMeta("id") !== null;
+    const exists = this.getMeta("id") !== null;
+    if (exists) await this.syncRegistry(false);
+    return exists;
+  }
+
+  /**
+   * 新討論建立時立即登錄；舊討論第一次被存取時補登。registry marker 留在各場
+   * DO，避免每一票都再打一次 registry RPC。
+   */
+  private async syncRegistry(force: boolean): Promise<void> {
+    if (!force && this.getMeta("registryVersion") === REGISTRY_VERSION) return;
+    const info = await this.publicInfo();
+    if (!info) return;
+    const registry = this.env.CONVERSATION.getByName(REGISTRY_OBJECT_NAME);
+    await registry.registerConversation(info, Date.now());
+    this.setMeta("registryVersion", REGISTRY_VERSION);
   }
 
   async publicInfo(): Promise<PublicInfo | null> {
@@ -507,8 +559,9 @@ export class Conversation extends DurableObject<Env> {
 
   async adminOverview(
     token: string,
+    trusted = false,
   ): Promise<{ settings: ConversationSettings; statements: StatementView[] } | { error: string }> {
-    if (!(await this.verifyAdmin(token))) return { error: "unauthorized" };
+    if (!trusted && !(await this.verifyAdmin(token))) return { error: "unauthorized" };
     return { settings: this.settings()!, statements: this.listStatements(true) };
   }
 
@@ -516,8 +569,9 @@ export class Conversation extends DurableObject<Env> {
     token: string,
     sid: number,
     action: "approve" | "reject",
+    trusted = false,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (!(await this.verifyAdmin(token))) return { ok: false, error: "unauthorized" };
+    if (!trusted && !(await this.verifyAdmin(token))) return { ok: false, error: "unauthorized" };
     const rows = this.sql().exec(`SELECT status FROM statements WHERE sid = ?`, sid).toArray();
     if (rows.length === 0) return { ok: false, error: "not found" };
     const status = action === "approve" ? "approved" : "rejected";
@@ -530,8 +584,9 @@ export class Conversation extends DurableObject<Env> {
     token: string,
     text: string,
     now: number,
+    trusted = false,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (!(await this.verifyAdmin(token))) return { ok: false, error: "unauthorized" };
+    if (!trusted && !(await this.verifyAdmin(token))) return { ok: false, error: "unauthorized" };
     const trimmed = text.trim();
     if (!trimmed || trimmed.length > MAX_STATEMENT_LENGTH) {
       return { ok: false, error: "invalid statement" };
@@ -548,8 +603,9 @@ export class Conversation extends DurableObject<Env> {
   async updateSettings(
     token: string,
     patch: Partial<ConversationSettings>,
+    trusted = false,
   ): Promise<{ ok: true; settings: ConversationSettings } | { ok: false; error: string }> {
-    if (!(await this.verifyAdmin(token))) return { ok: false, error: "unauthorized" };
+    if (!trusted && !(await this.verifyAdmin(token))) return { ok: false, error: "unauthorized" };
     const current = this.settings()!;
     const next: ConversationSettings = {
       title: typeof patch.title === "string" && patch.title.trim() ? patch.title.trim().slice(0, 120) : current.title,
@@ -563,20 +619,22 @@ export class Conversation extends DurableObject<Env> {
       altUrl: typeof patch.altUrl === "string" ? sanitizeAltUrl(patch.altUrl) : current.altUrl,
     };
     this.setMeta("settings", JSON.stringify(next));
+    await this.syncRegistry(true);
     return { ok: true, settings: next };
   }
 
   // ---- data export ----
 
-  private async canExport(token: string | null): Promise<boolean> {
+  private async canExport(token: string | null, trusted = false): Promise<boolean> {
+    if (trusted) return true;
     const settings = this.settings();
     if (!settings) return false;
     if (settings.openData) return true;
     return token !== null && (await this.verifyAdmin(token));
   }
 
-  async exportStatementsCsv(token: string | null): Promise<string | null> {
-    if (!(await this.canExport(token))) return null;
+  async exportStatementsCsv(token: string | null, trusted = false): Promise<string | null> {
+    if (!(await this.canExport(token, trusted))) return null;
     const rows = this.listStatements(true);
     const header = "statement_id,text,status,is_seed,agrees,disagrees,passes,created_at";
     const lines = rows.map((r) =>
@@ -590,8 +648,8 @@ export class Conversation extends DurableObject<Env> {
    * author-id 用參與者加入順序流水號（同 votes.csv 的 p1、p2⋯ 去掉前綴），種子意見（主持人建立）為 0；
    * 含全部審核狀態，以 moderated 欄區分（1 / 0 / -1），與 statements.csv 一致。
    */
-  async exportCommentsCsv(token: string | null): Promise<string | null> {
-    if (!(await this.canExport(token))) return null;
+  async exportCommentsCsv(token: string | null, trusted = false): Promise<string | null> {
+    if (!(await this.canExport(token, trusted))) return null;
     const rows = this.sql()
       .exec(
         `SELECT s.sid, s.text, s.status, s.created_at, s.agrees, s.disagrees, COALESCE(p.seq, 0) AS author
@@ -612,8 +670,8 @@ export class Conversation extends DurableObject<Env> {
   }
 
   /** 長格式投票匯出。參與者以加入順序匿名化為 p1、p2⋯，不輸出 pid。 */
-  async exportVotesCsv(token: string | null): Promise<string | null> {
-    if (!(await this.canExport(token))) return null;
+  async exportVotesCsv(token: string | null, trusted = false): Promise<string | null> {
+    if (!(await this.canExport(token, trusted))) return null;
     const rows = this.sql()
       .exec(
         `SELECT p.seq, v.sid, v.value, v.updated_at FROM votes v
@@ -644,6 +702,99 @@ export class Conversation extends DurableObject<Env> {
     this.sql().exec(`INSERT INTO creation_log (ts) VALUES (?)`, now);
     return { ok: true };
   }
+
+  // ---- 全站討論 registry（只在 getByName("conversation-registry") 上使用） ----
+
+  async registerConversation(info: PublicInfo, now: number): Promise<void> {
+    this.sql().exec(
+      `INSERT INTO conversation_registry (
+         id, title, description, status, allow_submissions, auto_approve, open_data, alt_url,
+         statement_count, participant_count, vote_count, created_at, indexed_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         description = excluded.description,
+         status = excluded.status,
+         allow_submissions = excluded.allow_submissions,
+         auto_approve = excluded.auto_approve,
+         open_data = excluded.open_data,
+         alt_url = excluded.alt_url,
+         statement_count = excluded.statement_count,
+         participant_count = excluded.participant_count,
+         vote_count = excluded.vote_count,
+         updated_at = excluded.updated_at`,
+      info.id,
+      info.title,
+      info.description,
+      info.status,
+      info.allowSubmissions ? 1 : 0,
+      info.autoApprove ? 1 : 0,
+      info.openData ? 1 : 0,
+      info.altUrl,
+      info.counts.statements,
+      info.counts.participants,
+      info.counts.votes,
+      info.createdAt,
+      now,
+      now,
+    );
+  }
+
+  async listRegisteredConversations(options: {
+    status?: "open" | "closed";
+    includePrivate: boolean;
+    query?: string;
+    limit: number;
+    cursor?: string;
+  }): Promise<ConversationRegistryPage> {
+    const limit = Math.max(1, Math.min(100, Math.floor(options.limit)));
+    const offset = parseRegistryCursor(options.cursor);
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+    if (options.status) {
+      conditions.push("status = ?");
+      params.push(options.status);
+    }
+    if (!options.includePrivate) conditions.push("open_data = 1");
+    const query = options.query?.trim().slice(0, 120);
+    if (query) {
+      conditions.push("(title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
+      const pattern = `%${escapeLike(query)}%`;
+      params.push(pattern, pattern);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const total = Number(
+      this.sql()
+        .exec(`SELECT COUNT(*) AS n FROM conversation_registry ${where}`, ...params)
+        .one().n,
+    );
+    const rows = this.sql()
+      .exec(
+        `SELECT * FROM conversation_registry ${where}
+         ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`,
+        ...params,
+        limit,
+        offset,
+      )
+      .toArray();
+    const conversations = rows.map(registryRowToEntry);
+    const nextOffset = offset + conversations.length;
+    return {
+      conversations,
+      total,
+      nextCursor: nextOffset < total ? String(nextOffset) : null,
+    };
+  }
+
+  /** 已知官方 demo 在第一次列舉時補進 registry；不存在時安靜略過。 */
+  async bootstrapKnownConversations(ids: string[]): Promise<void> {
+    if (this.getMeta("knownRegistryBootstrap") === REGISTRY_VERSION) return;
+    for (const id of ids) {
+      const info = await this.env.CONVERSATION.getByName(`conv:${id}`).publicInfo();
+      if (info) await this.registerConversation(info, Date.now());
+    }
+    this.setMeta("knownRegistryBootstrap", REGISTRY_VERSION);
+  }
 }
 
 /** 只接受 https:// 或站內相對路徑，其餘視為清空 */
@@ -651,4 +802,35 @@ function sanitizeAltUrl(raw: string): string {
   const trimmed = raw.trim().slice(0, 300);
   if (/^https:\/\/\S+$/.test(trimmed) || /^\/\S*$/.test(trimmed)) return trimmed;
   return "";
+}
+
+function parseRegistryCursor(cursor: string | undefined): number {
+  if (!cursor || !/^\d+$/.test(cursor)) return 0;
+  const parsed = Number(cursor);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function registryRowToEntry(row: Record<string, SqlStorageValue>): ConversationRegistryEntry {
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    description: String(row.description),
+    status: String(row.status) as "open" | "closed",
+    allowSubmissions: Number(row.allow_submissions) === 1,
+    autoApprove: Number(row.auto_approve) === 1,
+    openData: Number(row.open_data) === 1,
+    altUrl: String(row.alt_url),
+    counts: {
+      statements: Number(row.statement_count),
+      participants: Number(row.participant_count),
+      votes: Number(row.vote_count),
+    },
+    createdAt: Number(row.created_at),
+    indexedAt: Number(row.indexed_at),
+    updatedAt: Number(row.updated_at),
+  };
 }

@@ -23,7 +23,7 @@ describe("wrangler.jsonc", () => {
   it("靜態資產 binding 與 run_worker_first 路徑", () => {
     expect(wrangler.assets.directory).toBe("./public");
     expect(wrangler.assets.binding).toBe("ASSETS");
-    for (const path of ["/", "/api/*", "/c/*", "/r/*", "/a/*", "/en", "/en/*", "/guide"]) {
+    for (const path of ["/", "/api/*", "/mcp", "/c/*", "/r/*", "/a/*", "/en", "/en/*", "/guide"]) {
       expect(wrangler.assets.run_worker_first).toContain(path);
     }
   });
@@ -36,12 +36,19 @@ describe("wrangler.jsonc", () => {
     expect(wrangler.kv_namespaces).toBeUndefined();
     expect(wrangler.d1_databases).toBeUndefined();
     expect(wrangler.r2_buckets).toBeUndefined();
+    const conversation = read("src/conversation.ts");
+    expect(conversation).toContain("CREATE TABLE conversation_registry");
+    expect(conversation).toContain("registryVersion");
   });
 });
 
 describe("package.json", () => {
-  it("零 runtime 依賴", () => {
-    expect(pkg.dependencies).toBeUndefined();
+  it("MCP runtime 依賴使用官方 server v2 與 Cloudflare handler", () => {
+    expect(pkg.dependencies).toMatchObject({
+      "@modelcontextprotocol/server": expect.any(String),
+      agents: expect.any(String),
+      zod: expect.any(String),
+    });
   });
 
   it("CLI bin 指向 install-skill 腳本", () => {
@@ -53,6 +60,35 @@ describe("package.json", () => {
     expect(pkg.scripts.check).toContain("typecheck");
     expect(pkg.scripts.check).toContain("test");
     expect(pkg.scripts.check).toContain("deploy:dry");
+    expect(pkg.scripts["mcp:backfill"]).toContain("backfill-mcp-registry.mjs");
+  });
+});
+
+describe("MCP", () => {
+  it("使用 stateless Streamable HTTP handler，並完整註冊討論操作工具", () => {
+    const source = read("src/mcp.ts");
+    expect(read("src/index.ts")).toContain('from "agents/mcp/server"');
+    expect(source).toContain('new ResourceTemplate("pocket-polis://conversations/{conversationId}"');
+    expect(source).toContain('"analyze_deliberation"');
+    for (const tool of [
+      "list_conversations",
+      "list_active_conversations",
+      "get_conversation",
+      "get_conversation_results",
+      "create_conversation",
+      "get_next_statement",
+      "cast_vote",
+      "submit_statement",
+      "export_conversation_data",
+      "get_admin_overview",
+      "moderate_statement",
+      "add_seed_statement",
+      "update_conversation_settings",
+      "register_conversation",
+      "backfill_conversation_registry",
+    ]) {
+      expect(source).toContain(`"${tool}"`);
+    }
   });
 });
 

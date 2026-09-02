@@ -29,7 +29,7 @@ Durable Object "Conversation" (one per conversation)
    └─ math pipeline (src/math/*): recomputed on change, cached
 ```
 
-No KV, D1, R2, queues, or external services — Durable Object SQLite is the only database. Zero runtime dependencies. Works on the Cloudflare free plan (100k requests/day, 5 GB storage). What "serverless" means here, and the alternatives considered: [docs/is-this-serverless.md](docs/is-this-serverless.md) (zh).
+No KV, D1, R2, queues, or external data services — Durable Object SQLite is the only database. MCP packages are bundled into the Worker, with no additional service to operate. Works on the Cloudflare free plan (100k requests/day, 5 GB storage). What "serverless" means here, and the alternatives considered: [docs/is-this-serverless.md](docs/is-this-serverless.md) (zh).
 
 ## Quick start
 
@@ -41,6 +41,18 @@ npm run deploy     # deploy to your Cloudflare account
 ```
 
 Or click **Deploy to Cloudflare** above. For a custom domain, edit `env.production.routes` in `wrangler.jsonc` and run `npm run deploy:production`.
+
+## MCP
+
+Every deployment exposes a stateless Streamable HTTP MCP endpoint at `https://your-host/mcp`.
+It can list all indexed or currently active conversations, read complete public results,
+create and participate in conversations, export data, and perform host operations. It also
+provides conversation resources and a neutral-analysis prompt.
+
+Public enumeration includes only `openData=true` conversations. Private enumeration and
+global administration require `MCP_ADMIN_TOKEN`; per-conversation admin tokens continue to
+work for that conversation. See [docs/mcp.md](docs/mcp.md) for all tools, authorization,
+legacy registry backfill, and MCP Inspector testing.
 
 ### Let an AI agent deploy it for you
 

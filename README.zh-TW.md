@@ -29,7 +29,7 @@ Durable Object「Conversation」（一場討論一個）
    └─ 數學管線（src/math/*）：變動時重算並快取
 ```
 
-沒有 KV、D1、R2、Queues 或外部服務——Durable Object SQLite 是唯一的資料庫。零 runtime 依賴。Cloudflare 免費方案即可運作（每天 10 萬請求、5GB 儲存）。「這真的是 serverless 嗎」的完整討論：[docs/is-this-serverless.md](docs/is-this-serverless.md)。
+沒有 KV、D1、R2、Queues 或外部資料服務——Durable Object SQLite 是唯一的資料庫。MCP 套件會隨 Worker 一起 bundle，不需另外維護服務。Cloudflare 免費方案即可運作（每天 10 萬請求、5GB 儲存）。「這真的是 serverless 嗎」的完整討論：[docs/is-this-serverless.md](docs/is-this-serverless.md)。
 
 ## 快速開始
 
@@ -41,6 +41,16 @@ npm run deploy     # 部署到你的 Cloudflare 帳號
 ```
 
 或按上方 **Deploy to Cloudflare** 按鈕。要綁自訂網域：改 `wrangler.jsonc` 的 `env.production.routes` 後 `npm run deploy:production`。
+
+## MCP
+
+每個部署同時提供 stateless Streamable HTTP MCP endpoint：`https://你的網域/mcp`。
+它可列出所有已索引或目前進行中的討論、讀取完整公開結果、建立與參與討論、
+匯出資料及執行主持人操作；並提供 discussion resources 與中立分析 prompt。
+
+公開列舉預設只顯示 `openData=true` 的討論。非公開列舉與全域管理需設定
+`MCP_ADMIN_TOKEN`，單場管理也可沿用該場 admin token。完整工具、權限、歷史討論
+補登與 Inspector 測試方式見 [docs/mcp.md](docs/mcp.md)。
 
 ### 讓 AI agent 幫你部署
 
