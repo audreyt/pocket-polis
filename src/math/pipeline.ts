@@ -169,7 +169,7 @@ export function privacySafeMathResult(result: MathResult, k = MIN_GROUP_STATS_SI
       }
       return {
         ...g,
-        representative: g.representative.filter((r) => r.nSeen >= k),
+        representative: g.representative.filter((r) => r.nSeen >= k && publishableSids.has(r.sid)),
         statementStats: (g.statementStats ?? []).filter((s) => publishableSids.has(s.sid)),
       };
     }),

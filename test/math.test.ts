@@ -262,9 +262,9 @@ describe("privacySafeMathResult（k-匿名）", () => {
     expect(safe.groups[0]!.statsRedacted).toBeUndefined();
     // 全體統計不動（本來就是公開的）
     expect(safe.statementStats).toEqual(result.statementStats);
-    // 代表性陳述：nSeen < k 的移除
+    // 代表性陳述：nSeen < k 或非 publishableSids（逐格抑制／互補差分）者一併移除
     expect(safe.groups[0]!.representative.map((r) => r.sid)).toEqual([1]);
-    expect(safe.groups[1]!.representative.map((r) => r.sid)).toEqual([3]);
+    expect(safe.groups[1]!.representative.map((r) => r.sid)).toEqual([]);
     // 不變量：每個公佈格 >= k；每個可推導餘數為 0 或 >= k
     for (const s of safe.statementStats) {
       const cells = safe.groups.map((g) => g.statementStats?.find((c) => c.sid === s.sid)).filter(Boolean) as any[];

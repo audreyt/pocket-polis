@@ -9,12 +9,13 @@
     "url": "git+https://github.com/mashbean/pocket-polis.git"
   },
   "bugs": "https://github.com/mashbean/pocket-polis/issues",
-  "homepage": "https://polis.tw/",
+  "homepage": "https://polis.mashbean.net/",
   "bin": {
     "pocket-polis": "./scripts/cli.mjs"
   },
   "scripts": {
     "dev": "wrangler dev",
+    "mcp:backfill": "node scripts/backfill-mcp-registry.mjs",
     "deploy": "node scripts/ensure-queue.mjs && wrangler deploy",
     "deploy:production": "node scripts/ensure-queue.mjs production && wrangler deploy --env production",
     "deploy:dry": "wrangler deploy --dry-run",
@@ -31,5 +32,10 @@
   },
   "engines": {
     "node": ">=22.13"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "^0.22.0",
+    "zod": "^4.5.4"
   }
 }

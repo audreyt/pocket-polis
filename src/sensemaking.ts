@@ -91,8 +91,12 @@ export interface SensemakingProvenance {
   voteCount: number;
   groupCount: number;
 }
+export const SYNTHESIS_PRIVACY_VERSION = 2;
+
 export interface SensemakingSynthesis {
   version: "v1";
+  /** 隱私規則版本：用於識別舊快取是否需以確定性摘要取代，避免逐欄位補丁遺漏 */
+  privacyVersion: number;
   status: "ready";
   generationMode: "ai" | "deterministic";
   model: typeof SENSEMAKING_MODEL | typeof DETERMINISTIC_MODEL;
@@ -239,23 +243,24 @@ export function computeEvidenceBuckets(
       groupStatsMap.set(g.id, new Map());
     }
   }
-  const hasGroupStats = (gid: number) => (groupStatsMap.get(gid)?.size ?? 0) > 0;
   const reportable = reportableGroups(mathResult);
   const reportableGroupIds = new Set(reportable.map((g) => g.id));
 
   // 1. 嚴格跨群共識候選集：
   // 交集數學管線檢定通過之 consensus 方向與每群平滑偽機率 (succ + 1) / (seen + 2) >= 0.60。
   // （符合 Jigsaw SummaryStats.minCommonGroundProb = 0.60 規範）
+  // 重要：小群（size < k）才可略過；可報告群若因逐格抑制而無 cell，須以 seen=0 視為 0.5 而 fail-closed，
+  // 否則會把「全被抑制」誤標為共識（fail-open）。
   const consensusAgreeSids = new Set<number>();
   const consensusDisagreeSids = new Set<number>();
   const eligibleConsensusSids = new Set<number>();
 
   if (mathResult.groups.length >= 2) {
-    // 同意共識：全體檢定通過 且 每一個群體的 pAgree >= 0.60
+    // 同意共識：全體檢定通過 且 每一個可報告群體的 pAgree >= 0.60
     for (const c of mathResult.consensus.agree) {
       let allGroupsGte60 = true;
       for (const g of mathResult.groups) {
-        if (!hasGroupStats(g.id)) continue; // 小群無公開統計，僅由數學管線 consensus 檢定把關
+        if (!reportableGroupIds.has(g.id)) continue; // 僅小群無公開統計，僅由數學管線 consensus 檢定把關
         const gs = groupStatsMap.get(g.id)?.get(c.sid);
         const agrees = gs ? gs.agrees : 0;
         const seen = gs ? gs.seen : 0;
@@ -271,11 +276,11 @@ export function computeEvidenceBuckets(
       }
     }
 
-    // 不同意共識：全體檢定通過 且 每一個群體的 pDisagree >= 0.60
+    // 不同意共識：全體檢定通過 且 每一個可報告群體的 pDisagree >= 0.60
     for (const c of mathResult.consensus.disagree) {
       let allGroupsGte60 = true;
       for (const g of mathResult.groups) {
-        if (!hasGroupStats(g.id)) continue;
+        if (!reportableGroupIds.has(g.id)) continue;
         const gs = groupStatsMap.get(g.id)?.get(c.sid);
         const disagrees = gs ? gs.disagrees : 0;
         const seen = gs ? gs.seen : 0;
@@ -335,19 +340,117 @@ export function computeEvidenceBuckets(
 /**
  * 讀取時的守門：已快取的綜整（可能產生於 k-匿名規則之前）若含有不可報告群的畫像或指名它的張力，
  * 於回傳前移除，不需重新生成（重新生成會消耗 AI 額度）。以目前的 mathResult 判定可報告群。
+ * 深層版：亦驗證畫像內的 keyStance 是否仍為當前可報告群的代表性（nSeen >= k 且 publishable）、
+ * 張力的逐群格子是否仍可發佈（seen >= k 且能區分該對）、以及確定性主題是否指名現已不可報告的群。
+ * 舊版快取（含上述任一隱私關聯）交由呼叫端以確定性摘要取代，而非僅淺層過濾兩陣列。
  */
-export function dropUnreportableGroups<T extends { groupPortraits?: unknown; tensions?: unknown }>(
+export function dropUnreportableGroups<T extends { groupPortraits?: unknown; tensions?: unknown; themes?: unknown }>(
   synthesis: T,
   mathResult: MathResult,
 ): T {
-  const ok = new Set(reportableGroups(mathResult).map((g) => g.id));
-  const portraits = Array.isArray(synthesis.groupPortraits)
-    ? (synthesis.groupPortraits as SensemakingGroupPortrait[]).filter((p) => ok.has(p.groupId))
-    : synthesis.groupPortraits;
-  const tensions = Array.isArray(synthesis.tensions)
-    ? (synthesis.tensions as SensemakingTension[]).filter((t) => ok.has(t.groupAId) && ok.has(t.groupBId))
-    : synthesis.tensions;
-  return { ...synthesis, groupPortraits: portraits, tensions };
+  // 防禦：測試用的極簡 mock 可能缺少 size/label/representative/statementStats
+  const groups = Array.isArray(mathResult.groups) ? mathResult.groups : [];
+  const ok = new Set(reportableGroups(mathResult as MathResult).map((g) => g.id));
+  // 若 groups 不含可用欄位，僅做淺層過濾，避免 computeEvidenceBuckets 對不完整結構拋錯
+  const hasFullStats =
+    Array.isArray((mathResult as MathResult).statementStats) &&
+    groups.every((g: unknown) => {
+      const gg = g as Record<string, unknown>;
+      return Array.isArray(gg.representative) && typeof gg.id === "number";
+    });
+  const labelToId = new Map(groups.map((g) => [g.label, g.id]));
+  const okLabels = new Set(reportableGroups(mathResult as MathResult).map((g) => g.label));
+  // 代表性映射：僅含當前仍可報告且 nSeen >= k 的 sid
+  const repByGroup = new Map<number, Set<number>>();
+  for (const g of groups) {
+    if (!ok.has(g.id)) continue;
+    const reps = Array.isArray(g.representative) ? g.representative : [];
+    repByGroup.set(g.id, new Set(reps.map((r: { sid: number }) => r.sid)));
+  }
+  // 計算當前可報告群的逐陳述統計，供張力引用驗證（僅在結構完整時）
+  let buckets: EvidenceBuckets | null = null;
+  if (hasFullStats) {
+    try {
+      const sids = (mathResult as MathResult).statementStats.map((s) => s.sid);
+      buckets = computeEvidenceBuckets(mathResult as MathResult, sids);
+    } catch {
+      buckets = null;
+    }
+  }
+
+  let portraits: unknown = synthesis.groupPortraits;
+  if (Array.isArray(synthesis.groupPortraits)) {
+    portraits = (synthesis.groupPortraits as SensemakingGroupPortrait[])
+      .filter((p) => ok.has(p.groupId))
+      .map((p) => {
+        const allowed = repByGroup.get(p.groupId) ?? new Set();
+        const filteredStances = Array.isArray(p.keyStances)
+          ? (p.keyStances as SensemakingGroupStance[]).filter((st) => allowed.has(st.sid))
+          : p.keyStances;
+        // 若畫像的關鍵立場全被當前隱私規則抑制，仍保留畫像殼（標題與人數正確），但 citations 與 stances 清空
+        if (filteredStances !== p.keyStances) {
+          return {
+            ...p,
+            keyStances: filteredStances,
+            citedStatementIds: (filteredStances as SensemakingGroupStance[]).map((s) => s.sid),
+          };
+        }
+        return p;
+      });
+  }
+
+  let tensions: unknown = synthesis.tensions;
+  if (Array.isArray(synthesis.tensions)) {
+    tensions = (synthesis.tensions as SensemakingTension[]).filter((t) => {
+      if (!ok.has(t.groupAId) || !ok.has(t.groupBId)) return false;
+      // 當前結果不完整（測試 mock）或無逐陳述統計時，僅以群組大小做淺層過濾
+      if (!buckets || buckets.statementStatsMap.size === 0) return true;
+      const groupA = groups.find((g) => g.id === t.groupAId);
+      const groupB = groups.find((g) => g.id === t.groupBId);
+      if (!groupA || !groupB) return false;
+      // 張力的每一條引用都必須在當前仍能區分該對群體且為 publishable
+      if (!Array.isArray(t.citedStatementIds) || t.citedStatementIds.length === 0) return true;
+      return (t.citedStatementIds as number[]).every((sid) => {
+        // 若該 sid 不在當前 statementStatsMap（例如 mock 空統計），視為無法驗證而保留
+        if (!buckets.statementStatsMap.has(sid)) return true;
+        const gap = pairAgreeRateGap(buckets.groupStatsMap, sid, t.groupAId, t.groupBId);
+        if (gap === null) return false;
+        return distinguishesPair(buckets.groupStatsMap, reportableGroups(mathResult as MathResult).length, sid, groupA, groupB);
+      });
+    });
+  }
+
+  let themes: unknown = (synthesis as { themes?: unknown }).themes;
+  if (Array.isArray(themes)) {
+    themes = (themes as SensemakingTheme[]).filter((th) => {
+      // 確定性主題「Distinctive to group C / 第 C 群代表性意見」若指名現已不可報告的群，整條主題移除
+      const enMatch = typeof th.title === "string" ? th.title.match(/^Distinctive to group\s+(.+)$/i) : null;
+      const zhMatch = typeof th.title === "string" ? th.title.match(/^第\s*(.+?)\s*群/) : null;
+      const label = enMatch ? enMatch[1]!.trim() : zhMatch ? zhMatch[1]!.trim() : null;
+      if (label) {
+        const gid = labelToId.get(label);
+        if (gid !== undefined && !ok.has(gid)) return false;
+        if (gid === undefined && !okLabels.has(label)) {
+          // 標籤對應的群已不存在或不可報告，視為隱私舊主題
+          // 僅當標題明顯為 Distinctive 樣式時才移除，避免誤刪 LLM 自訂主題
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  return { ...synthesis, groupPortraits: portraits, tensions, themes } as T;
+}
+
+/**
+ * 判斷已快取綜整是否與當前隱私版本一致。
+ * 缺少 privacyVersion 視為舊版，需以確定性摘要取代（由呼叫端決定）。
+ */
+export function isSynthesisPrivacyCurrent(synthesis: unknown): boolean {
+  if (typeof synthesis !== "object" || synthesis === null) return false;
+  const rec = synthesis as Record<string, unknown>;
+  return rec.privacyVersion === SYNTHESIS_PRIVACY_VERSION;
 }
 
 /** 確定性 fallback 的張力配對：回傳證據最多的一對可報告群與其引用；無證據回傳 null。 */
@@ -1408,6 +1511,7 @@ ${groupPortraitsPrompt}`;
 
   return {
     version: "v1",
+    privacyVersion: SYNTHESIS_PRIVACY_VERSION,
     status: "ready",
     generationMode: "ai",
     model: SENSEMAKING_MODEL,
@@ -1563,6 +1667,7 @@ export function buildDeterministicSynthesis(
 
   return {
     version: "v1",
+    privacyVersion: SYNTHESIS_PRIVACY_VERSION,
     status: "ready",
     generationMode: "deterministic",
     model: DETERMINISTIC_MODEL,

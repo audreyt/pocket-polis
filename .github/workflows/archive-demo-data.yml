@@ -1,0 +1,47 @@
+# 每天把兩場官方 demo 的公開匿名化資料存進 repo（git 歷史即時間序列），
+# 供日後演算法調校與回歸測試使用。只碰 openData 開啟的官方 demo，
+# 不觸及其他使用者建立的討論。
+name: Archive demo data
+
+on:
+  schedule:
+    - cron: "0 20 * * *" # 04:00 台北時間
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: archive-demo-data
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch public exports
+        run: |
+          set -euo pipefail
+          BASE="https://polis.mashbean.net/api/conversations"
+          for conv in 3ovoxq5c6o qx7fc5m3ql; do
+            mkdir -p "data/demo/$conv"
+            curl -fsS --retry 3 "$BASE/$conv/export/votes.csv" -o "data/demo/$conv/votes.csv"
+            curl -fsS --retry 3 "$BASE/$conv/export/statements.csv" -o "data/demo/$conv/statements.csv"
+            # computedAt 每次重算都會變，先拿掉，只有實質變化才會產生 commit
+            curl -fsS --retry 3 "$BASE/$conv/results" | jq '.result | del(.computedAt)' \
+              > "data/demo/$conv/results.json"
+          done
+
+      - name: Commit if changed
+        run: |
+          git config user.name "pocket-polis-archiver"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/demo
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "chore(data): demo snapshot $(date -u +%F)"
+          git push

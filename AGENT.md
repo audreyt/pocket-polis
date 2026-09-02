@@ -60,6 +60,19 @@ curl -X POST $BASE/api/conversations -H 'Content-Type: application/json' -d '{
 - Share links: participate `/c/:id`, report `/r/:id`, admin `/a/:id#token=…` (the token lives in the URL fragment and never reaches server logs).
 - Clustering appears once 4+ participants have each voted on min(7, statement count) statements.
 
+## MCP
+
+The deployment also exposes a stateless Streamable HTTP MCP server at `/mcp`, supporting
+the MCP 2026-07-28 protocol and stateless 2025 clients. Prefer MCP when the host supports
+remote MCP; the REST API remains the fallback and browser-facing interface.
+
+- Public enumeration includes only `openData=true` conversations.
+- Exact public conversation details remain readable by ID, matching the web report.
+- Per-conversation admin tools accept that conversation's admin token.
+- Private enumeration, global admin, and registry backfill require a bearer token matching
+  the Worker secret `MCP_ADMIN_TOKEN`. Never print or commit it.
+- Full tool/resource/prompt and registry migration instructions: [docs/mcp.md](docs/mcp.md).
+
 ## Safety and etiquette
 
 - **Admin tokens**: hand the adminToken only to the user (or their designated secret store). Never print it into shareable output, never commit it. It cannot be recovered — only a new conversation can be created.

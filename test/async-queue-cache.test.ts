@@ -15,7 +15,7 @@ import worker, { type SensemakingQueueMessage } from "../src/index";
 import { AI_ATTEMPT_WINDOW_MS, SYNTHESIS_AI_CLAIM_KEY } from "../src/ai-budget";
 import { Conversation } from "../src/conversation";
 import { NeuronCoordinator } from "../src/neuron-coordinator";
-import { DETERMINISTIC_MODEL, SENSEMAKING_MODEL } from "../src/sensemaking";
+import { DETERMINISTIC_MODEL, SENSEMAKING_MODEL, SYNTHESIS_PRIVACY_VERSION } from "../src/sensemaking";
 
 // In-memory mock SQLite storage for DurableObject
 class MockSqlStorage {
@@ -96,6 +96,7 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
     const now = 1000000;
     const dummySynthesis = {
       version: "v1",
+      privacyVersion: SYNTHESIS_PRIVACY_VERSION,
       status: "ready",
       model: SENSEMAKING_MODEL,
       generatedAt: now - 5000,
@@ -161,6 +162,7 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
 
     const dummySynthesis = {
       version: "v1",
+      privacyVersion: SYNTHESIS_PRIVACY_VERSION,
       status: "ready",
       model: SENSEMAKING_MODEL,
       generatedAt,
@@ -226,6 +228,7 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
 
     const dummySynthesis = {
       version: "v1",
+      privacyVersion: SYNTHESIS_PRIVACY_VERSION,
       status: "ready",
       model: SENSEMAKING_MODEL,
       generatedAt,
@@ -418,6 +421,7 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
 
     const dummySynthesis = {
       version: "v1",
+      privacyVersion: SYNTHESIS_PRIVACY_VERSION,
       status: "ready",
       model: SENSEMAKING_MODEL,
       generatedAt,
@@ -593,6 +597,7 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
 
     const dummySynthesis = {
       version: "v1",
+      privacyVersion: SYNTHESIS_PRIVACY_VERSION,
       status: "ready",
       model: SENSEMAKING_MODEL,
       generatedAt,
@@ -759,6 +764,7 @@ describe("Async Queue & 24小時預算快取生命週期", () => {
 
     const oldSynthesis = {
       version: "v1",
+      privacyVersion: SYNTHESIS_PRIVACY_VERSION,
       status: "ready",
       model: DETERMINISTIC_MODEL,
       generatedAt: now - 50000,
@@ -967,12 +973,14 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     const { ctx } = convCtx();
     const coord = makeCoordinator();
     const aiRun = topicAi();
+    const registerConversation = vi.fn().mockResolvedValue(undefined);
     const token = "admin-token";
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
     const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
     const conv = new Conversation(ctx, {
       AI: { run: aiRun },
       NEURON_COORDINATOR: { getByName: () => coord },
+      CONVERSATION: { getByName: () => ({ registerConversation }) },
     } as any);
     seedSynthesisReady(conv, ctx, 1000);
     await conv.processSensemakingJob(42, "job-1", 1000);
@@ -982,6 +990,7 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     ctx.storage.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "adminTokenHash", hash);
     const updated = await conv.updateSettings(token, { title: "新標題" });
     expect(updated.ok).toBe(true);
+    expect(registerConversation).toHaveBeenCalledOnce();
     const claimAfter = ctx.storage.sql.exec("SELECT value FROM meta WHERE key = ?", SYNTHESIS_AI_CLAIM_KEY).one() as {
       value: string;
     };
@@ -1097,7 +1106,7 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     // 另一個 jobId 在 claim 窗內仍走 deterministic（既有政策不變）
   });
 
-  it("a cached synthesis generated before the k-anonymity rule drops small-group portraits and tensions when served", async () => {
+  it("a cached synthesis generated before the k-anonymity rule is replaced with deterministic synthesis (privacy-version mismatch)", async () => {
     const { ctx } = convCtx();
     const conv = new Conversation(ctx, {} as any);
     ctx.storage.sql.exec(
@@ -1124,6 +1133,7 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     vi.spyOn(conv, "publicStatements").mockResolvedValue({
       statements: [{ sid: 1, text: "s1" }, { sid: 2, text: "s2" }, { sid: 3, text: "s3" }],
     });
+    // 故意不帶 privacyVersion（舊版快取，含 overview/commonGround 任意主題描述等小群衍生 prose）
     ctx.storage.sql.exec(
       "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
       "synthesis_data",
@@ -1131,9 +1141,9 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
         status: "ready",
         mathRevision: 42,
         generatedAt: 1000,
-        overview: { summary: "x", citedStatementIds: [] },
-        themes: [],
-        commonGround: { keyPoints: [] },
+        overview: { summary: "legacy small-group prose", citedStatementIds: [] },
+        themes: [{ id: "t1", title: "Distinctive to group C", description: "legacy", primaryStatementIds: [1], secondaryStatementIds: [], statementIds: [1] }],
+        commonGround: { summary: "CG", keyPoints: [] },
         groupPortraits: [
           { groupId: 0, groupLabel: "A", size: 5, title: "", summary: "", keyStances: [], citedStatementIds: [] },
           { groupId: 2, groupLabel: "C", size: 1, title: "lone", summary: "", keyStances: [], citedStatementIds: [] },
@@ -1147,8 +1157,13 @@ describe("Per-conversation AI claim and deployment coordinator", () => {
     const { response } = await conv.checkOrStartSynthesis("conv123456", 2000);
     expect(response.status).toBe("ready");
     if (response.status !== "ready") return;
-    expect(response.groupPortraits.map((p) => p.groupId)).toEqual([0]);
-    expect(response.tensions.map((t) => t.topic)).toEqual(["ok"]);
+    // 舊版（無 privacyVersion）應被整體汰換為當前隱私安全版的確定性摘要，而非僅淺層過濾
+    expect(response.privacyVersion).toBe(SYNTHESIS_PRIVACY_VERSION);
+    expect(response.generationMode).toBe("deterministic");
+    expect(response.groupPortraits.some((p) => p.groupId === 2)).toBe(false);
+    expect(response.tensions.some((t) => t.topic === "leak")).toBe(false);
+    // 確定性主題不含已不可報告群的 Distinctive
+    expect(response.themes.some((th) => th.title.includes("Distinctive to group C"))).toBe(false);
   });
 
   it("updateSettings with only operational fields keeps a valid ready synthesis; title/description change invalidates it", async () => {
