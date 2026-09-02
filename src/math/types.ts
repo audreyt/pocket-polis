@@ -36,6 +36,13 @@ export interface GroupResult {
   size: number;
   center: [number, number];
   representative: RepresentativeStatement[];
+  /**
+   * 該群在各陳述上的投票統計（納入分群之參與者）。
+   * 公開版只含通過 k-匿名規則的格子（群 >= k、格 seen >= k、餘數 0 或 >= k），見 pipeline.privacySafeMathResult。
+   */
+  statementStats?: StatementStat[];
+  /** 公開版：此群人數低於 k-匿名下限，statementStats 與 representative 已遮蔽 */
+  statsRedacted?: boolean;
 }
 
 export interface ConsensusStatement {
