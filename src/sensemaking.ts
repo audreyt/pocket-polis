@@ -243,23 +243,24 @@ export function computeEvidenceBuckets(
       groupStatsMap.set(g.id, new Map());
     }
   }
-  const hasGroupStats = (gid: number) => (groupStatsMap.get(gid)?.size ?? 0) > 0;
   const reportable = reportableGroups(mathResult);
   const reportableGroupIds = new Set(reportable.map((g) => g.id));
 
   // 1. 嚴格跨群共識候選集：
   // 交集數學管線檢定通過之 consensus 方向與每群平滑偽機率 (succ + 1) / (seen + 2) >= 0.60。
   // （符合 Jigsaw SummaryStats.minCommonGroundProb = 0.60 規範）
+  // 重要：小群（size < k）才可略過；可報告群若因逐格抑制而無 cell，須以 seen=0 視為 0.5 而 fail-closed，
+  // 否則會把「全被抑制」誤標為共識（fail-open）。
   const consensusAgreeSids = new Set<number>();
   const consensusDisagreeSids = new Set<number>();
   const eligibleConsensusSids = new Set<number>();
 
   if (mathResult.groups.length >= 2) {
-    // 同意共識：全體檢定通過 且 每一個群體的 pAgree >= 0.60
+    // 同意共識：全體檢定通過 且 每一個可報告群體的 pAgree >= 0.60
     for (const c of mathResult.consensus.agree) {
       let allGroupsGte60 = true;
       for (const g of mathResult.groups) {
-        if (!hasGroupStats(g.id)) continue; // 小群無公開統計，僅由數學管線 consensus 檢定把關
+        if (!reportableGroupIds.has(g.id)) continue; // 僅小群無公開統計，僅由數學管線 consensus 檢定把關
         const gs = groupStatsMap.get(g.id)?.get(c.sid);
         const agrees = gs ? gs.agrees : 0;
         const seen = gs ? gs.seen : 0;
@@ -275,11 +276,11 @@ export function computeEvidenceBuckets(
       }
     }
 
-    // 不同意共識：全體檢定通過 且 每一個群體的 pDisagree >= 0.60
+    // 不同意共識：全體檢定通過 且 每一個可報告群體的 pDisagree >= 0.60
     for (const c of mathResult.consensus.disagree) {
       let allGroupsGte60 = true;
       for (const g of mathResult.groups) {
-        if (!hasGroupStats(g.id)) continue;
+        if (!reportableGroupIds.has(g.id)) continue;
         const gs = groupStatsMap.get(g.id)?.get(c.sid);
         const disagrees = gs ? gs.disagrees : 0;
         const seen = gs ? gs.seen : 0;

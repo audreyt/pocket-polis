@@ -664,10 +664,43 @@ export class Conversation extends DurableObject<Env> {
         return { response: { ...cached, isStale: false } };
       }
 
-      // 資料有變動：未滿 24 小時前，繼續回傳舊快取並標記 stale，不觸發重新生成
+      // 資料有變動：未滿 24 小時前，正常走 stale，但若舊綜整引用已被審核撤銷的陳述，
+      // 不應繼續公開該 prose / citations（且 citation 按鈕已無法定位），直接跳過 stale 並讓後續邏輯重建
       const ONE_DAY_MS = 24 * 60 * 60 * 1000;
       if (now - cached.generatedAt < ONE_DAY_MS) {
-        return { response: { ...cached, isStale: true } };
+        const currentSids = new Set(statements.map((s) => s.sid));
+        const citesRejected = (() => {
+          const allCited: number[] = [];
+          if (Array.isArray(cached.overview?.citedStatementIds)) allCited.push(...cached.overview.citedStatementIds);
+          if (Array.isArray(cached.themes)) {
+            for (const th of cached.themes as { statementIds?: number[]; primaryStatementIds?: number[]; secondaryStatementIds?: number[] }[]) {
+              if (Array.isArray(th.statementIds)) allCited.push(...th.statementIds);
+              if (Array.isArray(th.primaryStatementIds)) allCited.push(...th.primaryStatementIds);
+              if (Array.isArray(th.secondaryStatementIds)) allCited.push(...th.secondaryStatementIds);
+            }
+          }
+          if (Array.isArray(cached.commonGround?.keyPoints)) {
+            for (const kp of cached.commonGround.keyPoints as { citedStatementIds?: number[] }[]) {
+              if (Array.isArray(kp.citedStatementIds)) allCited.push(...kp.citedStatementIds);
+            }
+          }
+          if (Array.isArray(cached.groupPortraits)) {
+            for (const gp of cached.groupPortraits as { citedStatementIds?: number[]; keyStances?: { sid: number }[] }[]) {
+              if (Array.isArray(gp.citedStatementIds)) allCited.push(...gp.citedStatementIds);
+              if (Array.isArray(gp.keyStances)) allCited.push(...gp.keyStances.map((k) => k.sid));
+            }
+          }
+          if (Array.isArray(cached.tensions)) {
+            for (const t of cached.tensions as { citedStatementIds?: number[] }[]) {
+              if (Array.isArray(t.citedStatementIds)) allCited.push(...t.citedStatementIds);
+            }
+          }
+          return allCited.some((sid) => !currentSids.has(sid));
+        })();
+        if (!citesRejected) {
+          return { response: { ...cached, isStale: true } };
+        }
+        // 引用已被撤銷的內容：不回傳 stale，下方將依當前公開結果重建（不再走 24 小時寬限）
       }
 
       // 已滿 24 小時：可進行一次每日刷新
@@ -1006,9 +1039,19 @@ export class Conversation extends DurableObject<Env> {
     if (!(await this.verifyAdmin(token))) return { ok: false, error: "unauthorized" };
     const rows = this.sql().exec(`SELECT status FROM statements WHERE sid = ?`, sid).toArray();
     if (rows.length === 0) return { ok: false, error: "not found" };
+    const prevStatus = (rows[0] as { status: string }).status;
     const status = action === "approve" ? "approved" : "rejected";
+    if (prevStatus === status) return { ok: true };
     this.sql().exec(`UPDATE statements SET status = ? WHERE sid = ?`, status, sid);
     this.markDirty(Date.now());
+    // 審核狀態變更會立即影響 publicStatements()，但舊綜整的 prose / citations 仍可能引用已撤銷內容：
+    // 不應走 24 小時 stale 快取，直接失效並讓下次 GET 依當前公開結果重建（確定性或重送）。
+    const now = Date.now();
+    void now; // 僅為語意，實際失效不依賴 now
+    this.setMeta("synthesis_data", "");
+    this.setMeta("synthesis_pending", "");
+    this.setMeta("synthesis_failure", "");
+    this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
     return { ok: true };
   }
 
@@ -1028,6 +1071,11 @@ export class Conversation extends DurableObject<Env> {
       now,
     );
     this.markDirty(now);
+    // 新增公開陳述同樣影響 synthesis citations / 主題，應立即失效而非走 24 小時 stale
+    this.setMeta("synthesis_data", "");
+    this.setMeta("synthesis_pending", "");
+    this.setMeta("synthesis_failure", "");
+    this.setMeta(SYNTHESIS_ENQUEUED_REVISION_KEY, "");
     return { ok: true };
   }
 

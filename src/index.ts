@@ -465,6 +465,19 @@ async function handleConversationApi(
       return jsonError("action must be approve or reject", 400);
     }
     const result = await stub.moderateStatement(token, Number(moderate[1]), body.action);
+    if (result.ok) {
+      // 審核變更會使舊綜整引用已被撤銷的陈述；除了 DO 內已清除 synthesis 外，
+      // 亦需清除 Workers Cache 中殘留的 /synthesis（300s）與關聯公開資料，避免 stale 持續公開
+      try {
+        const cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
+        if (cache) {
+          const origin = url.origin;
+          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/synthesis`, { method: "GET" }));
+          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/results`, { method: "GET" }));
+          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/statements-public`, { method: "GET" }));
+        }
+      } catch {}
+    }
     return result.ok
       ? json(result, 200, { "Cache-Control": "no-store" })
       : jsonError(result.error, result.error === "unauthorized" ? 401 : 400);
@@ -476,6 +489,17 @@ async function handleConversationApi(
     const body = await readJson(request);
     if (!isRecord(body) || typeof body.text !== "string") return jsonError("text required", 400);
     const result = await stub.addSeedStatement(token, body.text, now);
+    if (result.ok) {
+      try {
+        const cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
+        if (cache) {
+          const origin = url.origin;
+          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/synthesis`, { method: "GET" }));
+          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/results`, { method: "GET" }));
+          await cache.delete(new Request(origin + `/api/conversations/${conversationId}/statements-public`, { method: "GET" }));
+        }
+      } catch {}
+    }
     return result.ok
       ? json(result, 200, { "Cache-Control": "no-store" })
       : jsonError(result.error, result.error === "unauthorized" ? 401 : 400);
