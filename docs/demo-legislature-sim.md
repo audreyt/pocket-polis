@@ -1,8 +1,10 @@
-# Demo 案例：【模擬】國防軍購特別預算公投（2026-09-01）
+# Demo 案例：【模擬】國防軍購特別預算公投（2026-09-03 於 polis.tw production 重建）
 
-線上展示：<https://polis.tw/r/likyl6aasu>（結果頁）· <https://polis.tw/c/likyl6aasu>（參與頁）
+線上展示：<https://polis.tw/r/o56v53wbwv>（結果頁）· <https://polis.tw/c/o56v53wbwv>（參與頁）
 
-English demo（同一模型、英文種子意見，2026-09-01 播種，60:53 分群）：<https://polis.tw/r/w3b89q4y8j?lang=en>。跑法：`node scripts/seed-demo-legislature.mjs <base-url> --lang en`。
+English demo（同一模型、英文種子意見，2026-09-03 播種，58:55 分群）：<https://polis.tw/r/hc4jr84mya?lang=en>。跑法：`node scripts/seed-demo-legislature.mjs <base-url> --lang en`。
+
+> 注意：每次重跑播種腳本都會產生**新的隨機對話 ID**，舊連結隨即失效。重建後必須同步更新所有引用（README、README.zh-TW、public/*.html、本檔案），再重新部署；連結一致性由 `test/demo-links.test.js` 把關，線上存活由 `node scripts/verify-demo-links.mjs https://polis.tw` 與每日排程（`.github/workflows/demo-links.yml`）檢查。2026-09-03 的教訓：demo 只存在於預設環境的 Durable Object 命名空間，production（polis.tw）是另一個空的命名空間，首頁卻硬連舊 ID，造成全站示範連結 404。
 
 ## 這是什麼（以及不是什麼）
 
@@ -15,14 +17,16 @@ English demo（同一模型、英文種子意見，2026-09-01 播種，60:53 分
 
 ## 播種當下的結果快照
 
-24 句種子陳述、113 位模擬參與者、2,712 票。分群 **k=2**，silhouette 0.616：
+24 句種子陳述、113 位模擬參與者、2,712 票。分群 **k=2**，silhouette 0.600（2026-09-03 重建時；初版 2026-09-01 為 0.616）：
 
-- **群 A：62 人**——與「藍＋白＋無黨籍」的席次和（52+8+2=62）一致
-- **群 B：51 人**——與「綠」席次（51）一致
+- **群 A：60 人**——接近「藍＋白＋無黨籍」的席次和（52+8+2=62）
+- **群 B：53 人**——接近「綠」席次（51）
+
+（投票模型與隨機種子固定，但 k-means 初始值隨機，每次重建的分群人數可能差一兩人；代表性陳述與共識的格局不變。）
 
 ### 各群代表性陳述（讓這群有別於他群的立場）
 
-| 群 A（62 人） | 群 B（51 人） |
+| 群 A（60 人） | 群 B（53 人） |
 |---|---|
 | 88% 同意「兩岸恢復制度化對話，比增加軍購更能降低戰爭風險」 | 85% **不**同意（同一句） |
 | 81% 不同意「以特別預算（舉債）支應大規模軍購是可接受的財政安排」 | 87% 同意（同一句） |

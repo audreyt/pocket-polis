@@ -1,4 +1,4 @@
-import { api, conversationIdFromPath, getPid, show } from "./common.js";
+import { api, conversationIdFromPath, getPid, isNotFoundMessage, show } from "./common.js";
 import { applyI18n, mountLangSwitch, t } from "./i18n.js";
 
 applyI18n();
@@ -23,7 +23,7 @@ let busy = false;
 
 function fail(message) {
   titleNode.textContent = t("p.loadFail");
-  loadError.textContent = message;
+  loadError.textContent = isNotFoundMessage(message) ? t("app.notFound") : message;
   show(loadError, true);
 }
 

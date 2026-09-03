@@ -1,4 +1,4 @@
-import { accessibleTextColor, api, conversationIdFromPath, el, groupColor, show, statementRowAttrs } from "./common.js";
+import { accessibleTextColor, api, conversationIdFromPath, el, groupColor, isNotFoundMessage, show, statementRowAttrs } from "./common.js";
 import { applyI18n, lang, mountLangSwitch, t } from "./i18n.js";
 
 applyI18n();
@@ -20,10 +20,16 @@ let infoLoaded = false;
 
 function fail(message) {
   const box = document.getElementById("load-error");
-  box.textContent = message;
+  const notFound = isNotFoundMessage(message);
+  box.textContent = notFound ? t("app.notFound") : message;
   show(box, true);
   show(document.getElementById("stats-row"), false);
   show(document.getElementById("map-container"), false);
+  if (notFound && !infoLoaded) {
+    // 討論根本不存在：別讓標題永遠卡在「載入中」
+    document.getElementById("conv-title").textContent = t("r.loadFail");
+    document.title = `${t("r.loadFail")} — Pocket Polis`;
+  }
 }
 
 function pidForReadOnly() {

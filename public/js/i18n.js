@@ -7,6 +7,10 @@ export const STRINGS = {
   "app.loading": ["載入中⋯", "Loading…"],
   "app.sourceLink": ["原始碼", "Source"],
   "app.badUrl": ["網址不正確。", "This link is not valid."],
+  "app.notFound": [
+    "找不到這場討論。它可能已被刪除，或這是另一個站點的連結。",
+    "This conversation wasn't found here. It may have been deleted, or this link belongs to a different site.",
+  ],
   "nav.zhName": ["口袋審議", ""],
   "app.altBanner": ["這場討論有另一個語言版本，點此前往", "This conversation is also available in another language. Open it"],
 

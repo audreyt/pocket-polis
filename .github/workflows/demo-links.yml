@@ -1,0 +1,30 @@
+# 每天確認 polis.tw 的示範連結活著，外加靜態一致性。
+# 背景：2026-09-03 首頁示範連結指向不存在於 production 命名空間的對話 ID，
+# 全站示範 404。靜態漂移由 test/demo-links.test.js 在每次 CI 攔截；
+# 這裡攔截「ID 對了但資料不在線上環境」的情況。
+name: Demo links live check
+
+on:
+  schedule:
+    # 06:00 台北時間（避開 04:00 的 archive-demo-data）
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demo-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Static consistency (repo refs == canonical demo IDs)
+        run: node scripts/verify-demo-links.mjs
+
+      - name: Live check on polis.tw
+        run: node scripts/verify-demo-links.mjs https://polis.tw

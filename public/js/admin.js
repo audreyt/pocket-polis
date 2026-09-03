@@ -1,4 +1,4 @@
-import { api, conversationIdFromPath, copyText, el, show } from "./common.js";
+import { api, conversationIdFromPath, copyText, el, isNotFoundMessage, show } from "./common.js";
 import { applyI18n, mountLangSwitch, t } from "./i18n.js";
 
 applyI18n();
@@ -13,7 +13,7 @@ const loadError = document.getElementById("load-error");
 let token = null;
 
 function fail(message) {
-  loadError.textContent = message;
+  loadError.textContent = isNotFoundMessage(message) ? t("app.notFound") : message;
   show(loadError, true);
 }
 

@@ -4,7 +4,7 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/pocket-polis)
 
-Live site: **<https://polis.tw/en>** · Demo: [a simulated defense-budget referendum](https://polis.tw/r/w3b89q4y8j?lang=en) with 113 fictional legislators ([how it was made](docs/demo-legislature-sim.md))
+Live site: **<https://polis.tw/en>** · Demo: [a simulated defense-budget referendum](https://polis.tw/r/hc4jr84mya?lang=en) with 113 fictional legislators ([how it was made](docs/demo-legislature-sim.md))
 
 正體中文說明：[README.zh-TW.md](README.zh-TW.md) ·（Pocket Polis 的中文名稱是「口袋審議」——讓你可以隨時發起審議的口袋工具）
 

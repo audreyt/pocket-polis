@@ -16,6 +16,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "mcp:backfill": "node scripts/backfill-mcp-registry.mjs",
+    "demo:verify": "node scripts/verify-demo-links.mjs",
+    "demo:verify:live": "node scripts/verify-demo-links.mjs https://polis.tw",
     "deploy": "node scripts/ensure-queue.mjs && wrangler deploy",
     "deploy:production": "node scripts/ensure-queue.mjs production && wrangler deploy --env production",
     "deploy:dry": "wrangler deploy --dry-run",

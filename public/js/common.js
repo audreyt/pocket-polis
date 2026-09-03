@@ -57,6 +57,12 @@ export function show(node, visible) {
   node.classList.toggle("hidden", !visible);
 }
 
+// 後端 404（"conversation not found" / "not found"）一律轉為在地化說明，
+// 避免把英文原句直接攤在使用者面前。
+export function isNotFoundMessage(message) {
+  return typeof message === "string" && /not found/i.test(message);
+}
+
 export async function copyText(text, button) {
   const isEn = document.documentElement.lang === "en";
   try {

@@ -4,7 +4,7 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/mashbean/pocket-polis)
 
-線上：**<https://polis.tw>** · Demo：[【模擬】國防軍購特別預算公投](https://polis.tw/r/likyl6aasu)（113 位虛構立委的模擬樣本，見 [docs/demo-legislature-sim.md](docs/demo-legislature-sim.md)）· English: [README.md](README.md)
+線上：**<https://polis.tw>** · Demo：[【模擬】國防軍購特別預算公投](https://polis.tw/r/o56v53wbwv)（113 位虛構立委的模擬樣本，見 [docs/demo-legislature-sim.md](docs/demo-legislature-sim.md)）· English: [README.md](README.md)
 
 給審議工作者的實務指南：<https://polis.tw/guide>
 
